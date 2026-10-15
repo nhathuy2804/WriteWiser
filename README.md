@@ -1,4 +1,4 @@
-# WriteWiser v24 — sửa đồng bộ thư viện đề trên nền tảng v13
+# WriteWiser v25 — footer bản quyền và liên hệ trên nền tảng v13
 
 Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để triển khai nhiều người dùng trên hosting từ xa.
 
@@ -166,3 +166,14 @@ Nếu Gemini trả 503/429, timeout hoặc JSON lỗi, backend thử nhà cung c
 - Nếu một trong hai API lỗi, giao diện hiện thông báo lỗi và nút thử lại; không coi API override lỗi là danh sách override rỗng.
 - Các override mới nhất được áp dụng sau mỗi lần tải; khi quay lại tab thư viện hoặc tab trình duyệt được mở lại sau một khoảng thời gian, danh sách được đồng bộ lại.
 - Sửa phiên bản health endpoint thành `24-library-sync-fix`.
+
+
+## v25 — disclaimer và liên hệ ở footer
+
+- Thêm tuyên bố miễn trừ trách nhiệm về trích đoạn bài mẫu/đề thi ở chân trang chính và trang hiệu chuẩn.
+- Thêm liên kết liên hệ Facebook WriteWiser: https://www.facebook.com/people/WriteWiser/61595026757886/
+- Health endpoint hiển thị phiên bản `25-footer-disclaimer`.
+
+## Favicon / logo tab trình duyệt
+
+Các trang `index.html` và `calibration.html` sử dụng biểu tượng WriteWiser từ `favicon.ico` và `assets/favicon-*.png`. Khi đổi logo, cần cập nhật các tệp favicon này; tham số `?v=26` giúp trình duyệt làm mới cache.

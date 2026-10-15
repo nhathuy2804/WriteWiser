@@ -2,7 +2,11 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WriteWiser v23 — Hiệu chuẩn chấm điểm</title>
+  <link rel="icon" href="/favicon.ico?v=26" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png?v=26">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png?v=26">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon-180.png?v=26">
+<title>WriteWiser v25 — Hiệu chuẩn chấm điểm</title>
 <link rel="stylesheet" href="styles.css">
 <style>
 .cal-shell{max-width:1100px;margin:0 auto;padding:28px 22px 60px}
@@ -142,4 +146,9 @@ $("addReferenceButton")?.addEventListener("click",async()=>{const status=$("admi
 $("addAdminCalibrationButton")?.addEventListener("click",async()=>{const status=$("adminCalStatus");try{let corrected_bands;try{corrected_bands=JSON.parse($("adminCalBands").value)}catch{throw new Error("Band JSON không hợp lệ.")}if(!$("adminCalQuestion").value.trim()||!$("adminCalEssay").value.trim()||!$("adminCalReason").value.trim())throw new Error("Cần đề bài, trích đoạn bài và căn cứ hiệu chuẩn.");await api("/api/admin/calibrations",{method:"POST",body:JSON.stringify({payload:{task:$("adminCalTask").value,question:$("adminCalQuestion").value.trim(),essay_excerpt:$("adminCalEssay").value.trim().slice(0,1800),corrected_bands,reasoning:$("adminCalReason").value.trim()}})});status.textContent="Đã lưu hiệu chuẩn dùng chung. Tối đa 3 mục gần nhất sẽ được đưa vào prompt chấm.";await loadAdminTools()}catch(e){status.textContent=e.message}});
 renderRuns();loadReferences();loadAdminTools();
 </script>
+<footer class="main-footer site-footer" aria-label="Thông tin và liên hệ WriteWiser">
+  <div class="footer-meta-row"><span>WriteWiser v25 · nền tảng v13</span><span>Học chủ động. Viết có chủ đích.</span></div>
+  <p class="footer-disclaimer">Các đoạn trích bài mẫu và đề thi thuộc bản quyền của DOL IELTS (hoặc các chủ sở hữu tương ứng). Ứng dụng chỉ sử dụng trích đoạn ngắn phục vụ mục đích học tập phi lợi nhuận và luôn đính kèm liên kết nguồn gốc.</p>
+  <div class="footer-contact">Liên hệ: <a href="https://www.facebook.com/people/WriteWiser/61595026757886/" target="_blank" rel="noopener noreferrer">Facebook WriteWiser ↗</a></div>
+</footer>
 </body></html>
