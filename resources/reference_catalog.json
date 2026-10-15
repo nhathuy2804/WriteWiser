@@ -1,0 +1,42 @@
+[
+  {
+    "title": "IELTS Writing Band Descriptors (updated May 2023)",
+    "kind": "Official scoring rubric",
+    "publisher": "IELTS",
+    "url": "https://ielts.org/cdn/ielts-guides/ielts-writing-band-descriptors.pdf",
+    "use": "Nguồn rubric chính thức cho Task Achievement/Task Response, Coherence and Cohesion, Lexical Resource, Grammatical Range and Accuracy.",
+    "notes": "Draftwise lưu diễn giải riêng theo band; mở PDF gốc để xác minh. Không nhúng nguyên văn toàn bộ tài liệu."
+  },
+  {
+    "title": "IELTS Academic Writing — Sample candidate responses with band scores and examiner comments",
+    "kind": "Official human-scored benchmark scripts",
+    "publisher": "IELTS",
+    "url": "https://ielts.org/cdn/computer-delivered-sample-tests-academic-writing/ielts-academic-writing-example-responses-to-parts-1-and-2-with-band-scores-and-examiner-comments.pdf",
+    "use": "Nguồn trực tiếp có 2 phản hồi Task 1 (Band 6 và Band 4) cùng 2 phản hồi Task 2 (Band 5.5 và Band 7.5), mỗi phản hồi kèm examiner comment.",
+    "notes": "Band được công bố ở cấp bài/task; tài liệu không cung cấp đủ điểm riêng của cả bốn tiêu chí. Không tự suy ra điểm tiêu chí."
+  },
+  {
+    "title": "IELTS Academic sample test questions",
+    "kind": "Official task and response references",
+    "publisher": "IELTS",
+    "url": "https://www.ielts.org/take-a-test/preparation-resources/sample-test-questions/academic-test",
+    "use": "Trang nguồn có đề Writing Academic và liên kết đến phản hồi mẫu Task 2 kèm band scores/examiner comments.",
+    "notes": "Mở trang nguồn để lấy đúng bài, band và examiner comments. Nội dung toàn văn không được sao chép vào Draftwise."
+  },
+  {
+    "title": "IELTS General Training sample test questions",
+    "kind": "Official task and response references",
+    "publisher": "IELTS",
+    "url": "https://ielts.org/take-a-test/preparation-resources/sample-test-questions/general-training-test",
+    "use": "Nguồn đề mẫu và sample scripts/examiner comments cho General Training.",
+    "notes": "Chỉ dùng nếu người học đang luyện General Training; rubric Task 1 khác Academic ở nội dung task."
+  },
+  {
+    "title": "IELTS Writing test preparation resources",
+    "kind": "Official scoring guidance",
+    "publisher": "IELTS",
+    "url": "https://ielts.org/take-a-test/preparation-resources/writing-test-resources",
+    "use": "Giải thích cách áp dụng bốn tiêu chí và ví dụ về phát triển luận điểm, độ chính xác, tổ chức.",
+    "notes": "Tài liệu hỗ trợ diễn giải rubric; không thay thế descriptors."
+  }
+]

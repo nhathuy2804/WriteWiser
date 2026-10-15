@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WriteWiser v23 — Hiệu chuẩn chấm điểm</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+.cal-shell{max-width:1100px;margin:0 auto;padding:28px 22px 60px}
+.cal-top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:26px}
+.cal-top a{color:var(--text,#1b2430);text-decoration:none;font-weight:700}
+.cal-card{background:var(--panel,#fff);border:1px solid var(--line,#e5e7eb);border-radius:16px;padding:22px;margin:16px 0}
+.cal-card h2{margin:0 0 8px;font-size:1.2rem}.muted{color:#667085;line-height:1.55}
+.cal-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.cal-grid label,.cal-card label{display:flex;flex-direction:column;gap:7px;font-weight:600;font-size:.9rem}
+.cal-grid input,.cal-grid select,.cal-card textarea,.cal-card input,.cal-card select{width:100%;border:1px solid #d0d5dd;border-radius:9px;padding:11px;font:inherit;background:#fff;color:#101828}
+.cal-card textarea{min-height:180px;resize:vertical}
+.cal-buttons{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.ref-item{padding:14px 0;border-top:1px solid #eaecf0}.ref-item:first-child{border-top:0}
+.ref-item a{font-weight:700;color:#175cd3}.ref-item .kind{font-size:.78rem;color:#475467;text-transform:uppercase;letter-spacing:.05em}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
+.metric{padding:14px;border-radius:12px;background:#f2f4f7}.metric strong{display:block;font-size:1.5rem}.result-table{width:100%;border-collapse:collapse}.result-table th,.result-table td{text-align:left;border-bottom:1px solid #eaecf0;padding:10px;font-size:.9rem}
+.pill{display:inline-block;border-radius:99px;padding:4px 8px;background:#ecfdf3;color:#027a48;font-size:.8rem}
+.warn{background:#fffaeb;border:1px solid #fedf89;border-radius:10px;padding:12px;color:#93370d}
+@media(max-width:700px){.cal-grid{grid-template-columns:1fr}.metrics{grid-template-columns:1fr}.cal-top{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="cal-shell">
+  <div class="cal-top"><a href="/">← Quay lại WriteWiser</a><span class="pill">Rubric & calibration lab</span></div>
+  <div class="eyebrow">SCORING RELIABILITY</div>
+  <h1>Rubric chi tiết & <em>hiệu chuẩn chấm band</em></h1>
+  <p class="muted">Trang này giúp kiểm tra độ lệch của AI trên các bài đã có band do giám khảo/nguồn uy tín công bố. Đây là công cụ đo lường, không phải bằng chứng rằng AI đã được kiểm định sẵn.</p>
+
+  <section class="cal-card">
+    <h2>1. Nguồn tham chiếu có provenance</h2>
+    <p class="muted">Dùng liên kết gốc để xác minh đề, bài, band và nhận xét. WriteWiser không sao chép toàn văn các bài mẫu có bản quyền vào thư viện.</p>
+    <div id="references"><p class="muted">Đang tải danh mục nguồn…</p></div>
+    <h3>Bộ bài tham chiếu chính thức có band người chấm</h3><p class="muted">Chọn một bài để nạp sẵn task, band tham chiếu và nguồn. Sau đó mở PDF, sao chép đề/bài tương ứng vào biểu mẫu. Không có sẵn criterion-level scores trong tài liệu này.</p><div id="officialBenchmarks"></div>
+    <div id="rubricInfo" class="muted"></div>
+  </section>
+
+  <section class="cal-card" id="adminCalibrationPanel" hidden>
+    <h2>Quản trị nguồn tham chiếu và hiệu chuẩn dùng chung (admin)</h2>
+    <p class="muted">Chỉ hiệu chuẩn được admin duyệt mới được thêm vào prompt dùng chung. Các ví dụ đang áp dụng được giới hạn ở 3 mục gần nhất để giữ chi phí token ổn định.</p>
+    <div class="cal-grid"><label>Tên nguồn<input id="newRefTitle" placeholder="IELTS official sample response"></label><label>URL HTTPS<input id="newRefUrl" type="url" placeholder="https://..."></label><label>Loại nguồn<input id="newRefKind" placeholder="Official benchmark / rubric"></label><label>Nhà xuất bản<input id="newRefPublisher" placeholder="IELTS / British Council / IDP"></label></div>
+    <label style="margin-top:12px">Mục đích sử dụng / ghi chú<textarea id="newRefUse" rows="2" placeholder="Dùng đối chiếu band, đề bài, examiner comments…"></textarea></label>
+    <div class="cal-buttons"><button class="button primary" id="addReferenceButton" type="button">Thêm nguồn tham chiếu</button></div><p id="adminReferenceStatus" class="muted" role="status"></p><div id="adminReferenceList"></div>
+    <hr style="margin:22px 0;border:0;border-top:1px solid #e5e7eb">
+    <h3>Thêm hiệu chuẩn đã xác minh</h3><p class="muted">Chỉ nhập sau khi có căn cứ rõ ràng. Không suy diễn điểm từng tiêu chí nếu nguồn chỉ công bố overall.</p>
+    <div class="cal-grid"><label>Task<select id="adminCalTask"><option>Task 1</option><option>Task 2</option></select></label><label>Band đã xác nhận (JSON)<input id="adminCalBands" placeholder='{"Task Achievement":7,"CC":7,"LR":6,"GRA":7}'></label></div>
+    <label style="margin-top:12px">Đề bài<textarea id="adminCalQuestion" rows="2"></textarea></label><label style="margin-top:12px">Trích đoạn bài (tối đa 1800 ký tự)<textarea id="adminCalEssay" rows="5"></textarea></label><label style="margin-top:12px">Lý do / căn cứ descriptor<textarea id="adminCalReason" rows="3"></textarea></label>
+    <div class="cal-buttons"><button class="button primary" id="addAdminCalibrationButton" type="button">Lưu hiệu chuẩn dùng chung</button></div><p id="adminCalStatus" class="muted" role="status"></p><div id="adminCalibrationList"></div>
+    <hr style="margin:22px 0;border:0;border-top:1px solid #e5e7eb"><h3>Hiệu chỉnh người dùng chờ duyệt</h3><p class="muted">Các sửa đổi riêng không ảnh hưởng model chung cho đến khi admin duyệt.</p><div id="pendingCorrectionsList"></div>
+  </section>
+
+  <section class="cal-card">
+    <h2>2. Chấm thử một bài đã có band tham chiếu</h2>
+    <p class="muted">Mở bài mẫu có band/examiner comments từ nguồn chính thức, rồi dán bài vào dưới đây. Nhập Overall Band được công bố. Chỉ nhập điểm từng tiêu chí nếu nguồn thực sự công bố các điểm đó; không tự suy đoán điểm tiêu chí từ overall.</p>
+    <div class="warn">Lưu ý: nhiều bài mẫu công khai chỉ nêu overall band và examiner comments, không công bố điểm riêng của cả bốn tiêu chí. Khi không có criterion scores, chỉ so sánh Overall Band.</div>
+    <div class="cal-grid" style="margin-top:16px">
+      <label>Loại bài<select id="task"><option value="Task 2">Task 2 Academic</option><option value="Task 1">Task 1 Academic</option></select></label>
+      <label>Nhãn / mã bài tham chiếu<input id="sampleId" placeholder="Ví dụ: IELTS official sample, PDF page …"></label>
+      <label>URL nguồn cụ thể<input id="sourceUrl" type="url" placeholder="https://ielts.org/…"></label>
+      <label>Overall Band tham chiếu<input id="humanOverall" type="number" min="0" max="9" step="0.5" placeholder="Ví dụ: 7.0"></label>
+      <label>Task Achievement / Task Response (nếu được công bố)<input id="humanTR" type="number" min="0" max="9" step="0.5" placeholder="Để trống nếu không có"></label>
+      <label>Coherence and Cohesion (nếu được công bố)<input id="humanCC" type="number" min="0" max="9" step="0.5" placeholder="Để trống nếu không có"></label>
+      <label>Lexical Resource (nếu được công bố)<input id="humanLR" type="number" min="0" max="9" step="0.5" placeholder="Để trống nếu không có"></label>
+      <label>Grammatical Range and Accuracy (nếu được công bố)<input id="humanGRA" type="number" min="0" max="9" step="0.5" placeholder="Để trống nếu không có"></label>
+    </div>
+    <label style="margin-top:16px">Đề bài<textarea id="question" style="min-height:90px" placeholder="Dán nguyên văn đề bài…"></textarea></label>
+    <label style="margin-top:16px">Bài viết tham chiếu<textarea id="essay" placeholder="Dán bài viết cần chấm…"></textarea></label>
+    <div class="cal-buttons"><button class="button primary" id="scoreBtn">Chấm bằng AI dự phòng & so sánh</button><button class="button secondary" id="clearBtn">Xóa biểu mẫu</button></div>
+    <p id="status" class="muted" role="status"></p>
+    <div id="result"></div>
+  </section>
+
+  <section class="cal-card">
+    <h2>3. Kết quả hiệu chuẩn trên trình duyệt này</h2>
+    <p class="muted">Các số liệu đo sai lệch của trang này vẫn được lưu cục bộ trong trình duyệt. Riêng hiệu chỉnh chấm bài đã lưu trong tài khoản và hiệu chuẩn được admin duyệt được lưu trong database máy chủ. Chỉ hiệu chuẩn admin duyệt mới tác động prompt chung; đây không phải fine-tuning model.</p>
+    <div id="metrics"></div>
+    <div class="cal-buttons"><button class="button secondary" id="exportBtn">Xuất kết quả JSON</button><button class="button secondary" id="clearRunsBtn">Xóa lịch sử hiệu chuẩn</button></div>
+  </section>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const escapeHTML=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const STORE="draftwise_calibration_runs_v1";
+let runs=JSON.parse(localStorage.getItem(STORE)||"[]");
+async function api(path,opts={}){const res=await fetch(path,{credentials:"same-origin",headers:{"Content-Type":"application/json",...(opts.headers||{})},...opts});let data={};try{data=await res.json()}catch{}if(!res.ok)throw new Error(data.error||"Yêu cầu thất bại ("+res.status+")");return data}
+function renderRuns(){
+ const root=$("metrics");
+ if(!runs.length){root.innerHTML='<p class="muted">Chưa có lần hiệu chuẩn nào. Hãy chấm ít nhất một bài tham chiếu để bắt đầu.</p>';return}
+ const scored=runs.filter(x=>Number.isFinite(x.humanOverall)&&Number.isFinite(x.aiOverall));
+ const mae=scored.length?scored.reduce((s,x)=>s+Math.abs(x.humanOverall-x.aiOverall),0)/scored.length:null;
+ const within=scored.length?scored.filter(x=>Math.abs(x.humanOverall-x.aiOverall)<=.5).length/scored.length*100:null;
+ const criterionRows=["TA/TR","CC","LR","GRA"].map(k=>{const a=runs.filter(x=>x.criteria?.[k]&&Number.isFinite(x.criteria[k].human)&&Number.isFinite(x.criteria[k].ai));return {k,n:a.length,mae:a.length?a.reduce((s,x)=>s+Math.abs(x.human-x.ai),0)/a.length:null}});
+ root.innerHTML=`<div class="metrics"><div class="metric"><span>Số bài so sánh overall</span><strong>${scored.length}</strong></div><div class="metric"><span>MAE overall</span><strong>${mae===null?"—":mae.toFixed(2)}</strong><small>Band; thấp hơn tốt hơn</small></div><div class="metric"><span>Khớp trong ±0.5 band</span><strong>${within===null?"—":within.toFixed(0)+"%"}</strong></div></div>
+ <table class="result-table"><thead><tr><th>Bài tham chiếu</th><th>Band người chấm</th><th>AI</th><th>Sai lệch</th></tr></thead><tbody>${scored.slice().reverse().map(x=>`<tr><td>${escapeHTML(x.sampleId||"Bài không tên")}<br><small>${escapeHTML(x.task)} · ${escapeHTML(x.date)}</small></td><td>${x.humanOverall.toFixed(1)}</td><td>${x.aiOverall.toFixed(1)}</td><td>${Math.abs(x.humanOverall-x.aiOverall).toFixed(1)}</td></tr>`).join("")}</tbody></table>
+ <h3>MAE theo tiêu chí (chỉ dùng điểm người chấm công bố)</h3><table class="result-table"><thead><tr><th>Tiêu chí</th><th>Số điểm so sánh</th><th>MAE</th></tr></thead><tbody>${criterionRows.map(x=>`<tr><td>${x.k}</td><td>${x.n}</td><td>${x.mae===null?"—":x.mae.toFixed(2)}</td></tr>`).join("")}</tbody></table>`;
+}
+async function loadReferences(){
+ try{
+  const d=await api("/api/scoring-resources");
+  $("references").innerHTML=(d.references||[]).map(r=>`<div class="ref-item"><div class="kind">${escapeHTML(r.kind)}</div><a href="${escapeHTML(r.url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(r.title)}</a><p>${escapeHTML(r.use)}</p><small class="muted">${escapeHTML(r.notes)}</small></div>`).join("");
+  $("officialBenchmarks").innerHTML=(d.officialBenchmarks||[]).map((b,i)=>`<div class="ref-item"><div class="kind">${escapeHTML(b.task)} · ${escapeHTML(b.human_score_type)}</div><strong>${escapeHTML(b.sample)}</strong><p><strong>Band tham chiếu: ${Number(b.overall_band).toFixed(1)}</strong> · ${escapeHTML(b.examiner_note)}</p><button class="button secondary" type="button" data-benchmark="${escapeHTML(b.id)}">Dùng bài này để hiệu chuẩn</button> <a href="${escapeHTML(b.source_url)}#page=${Math.max(1,Number(b.pdf_page||1))}" target="_blank" rel="noopener noreferrer">Mở PDF trang ${escapeHTML(b.pdf_page)} ↗</a></div>`).join("");
+  document.querySelectorAll("[data-benchmark]").forEach(btn=>btn.addEventListener("click",()=>{const b=(d.officialBenchmarks||[]).find(x=>x.id===btn.dataset.benchmark);if(!b)return;$("task").value=b.task;$("sampleId").value=b.sample;$("sourceUrl").value=b.source_url;$("humanOverall").value=Number(b.overall_band).toFixed(1);["humanTR","humanCC","humanLR","humanGRA"].forEach(id=>$(id).value="");$("status").textContent="Đã nạp metadata tham chiếu. Hãy mở PDF, sao chép đề và đúng Candidate Response vào các ô bên dưới trước khi chấm.";window.scrollTo({top:$("task").getBoundingClientRect().top+window.scrollY-30,behavior:"smooth"});}));
+  $("rubricInfo").innerHTML=`<p><strong>Phiên bản rubric:</strong> ${escapeHTML(d.rubricVersion)} · <strong>Nguồn chính:</strong> ${escapeHTML(d.rubricSource?.title||"IELTS")} (${escapeHTML(d.rubricSource?.updated||"")}).</p><p><a href="${escapeHTML(d.rubricSource?.url||"#")}" target="_blank" rel="noopener noreferrer">Mở band descriptors chính thức ↗</a></p><details><summary>Xem diễn giải band 0–9 trong WriteWiser</summary>${Object.entries(d.bands||{}).map(([band,cs])=>`<h4>Band ${escapeHTML(band)}</h4><ul>${Object.entries(cs).map(([k,v])=>`<li><strong>${escapeHTML(k)}:</strong> ${escapeHTML(v)}</li>`).join("")}</ul>`).join("")}</details>`;
+ }catch(e){$("references").innerHTML=`<p class="muted">Không tải được nguồn tham chiếu: ${escapeHTML(e.message)}</p>`}
+}
+$("scoreBtn").addEventListener("click",async()=>{
+ const task=$("task").value,question=$("question").value.trim(),essay_text=$("essay").value.trim();
+ const humanOverall=$("humanOverall").value===""?null:Number($("humanOverall").value);
+ if(!$("sampleId").value.trim()||!question||essay_text.length<30||!$("sourceUrl").value.trim()){ $("status").textContent="Nhập nhãn bài, URL nguồn, đề bài và bài viết trước khi chấm.";return}
+ if(humanOverall===null||humanOverall<0||humanOverall>9||humanOverall*2%1!==0){$("status").textContent="Hãy nhập Overall Band tham chiếu đã được nguồn công bố (0–9, bước 0.5).";return}
+ $("scoreBtn").disabled=true;$("status").textContent="Đang gửi bài đến AI provider. Nếu provider lỗi, máy chủ sẽ tự thử phương án dự phòng.";$("result").innerHTML="";
+ try{
+  const d=await api("/api/writing-feedback",{method:"POST",body:JSON.stringify({task,question,essay_text})});
+  const f=d.feedback||{}, aiOverall=Number(f.overall_band);
+  if(!Number.isFinite(aiOverall))throw new Error("AI provider không trả về Overall Band hợp lệ.");
+  const labels=task==="Task 1"?["TA","CC","LR","GRA"]:["TR","CC","LR","GRA"];
+  const expected=[$("humanTR").value,$("humanCC").value,$("humanLR").value,$("humanGRA").value];
+  const criteria={};
+  labels.forEach((k,i)=>{if(expected[i]!==""&&Number.isFinite(Number(expected[i]))){const c=(f.criteria||[]).find(x=>{const n=String(x.name||"").toLowerCase();return k==="CC"?n.includes("coherence"):k==="LR"?n.includes("lexical"):k==="GRA"?n.includes("grammatical"):task==="Task 1"?n.includes("achievement"):n.includes("response")});if(c)criteria[k]={human:Number(expected[i]),ai:Number(c.band)}}});
+  const run={sampleId:$("sampleId").value.trim(),sourceUrl:$("sourceUrl").value.trim(),task,date:new Date().toLocaleString("vi-VN"),humanOverall,aiOverall,criteria};
+  runs.push(run);localStorage.setItem(STORE,JSON.stringify(runs));renderRuns();
+  $("result").innerHTML=`<div class="metrics"><div class="metric"><span>Overall tham chiếu</span><strong>${humanOverall.toFixed(1)}</strong></div><div class="metric"><span>Overall AI</span><strong>${aiOverall.toFixed(1)}</strong></div><div class="metric"><span>Độ lệch tuyệt đối</span><strong>${Math.abs(humanOverall-aiOverall).toFixed(1)}</strong></div></div><p class="muted">Model: ${escapeHTML(d.model||"AI provider")}. Lần so sánh được lưu cục bộ trong trình duyệt.</p><h3>Band theo tiêu chí từ AI</h3><ul>${(f.criteria||[]).map(c=>`<li><strong>${escapeHTML(c.name)}:</strong> ${escapeHTML(c.band)}</li>`).join("")}</ul><details><summary>Xem phản hồi đầy đủ</summary><pre style="white-space:pre-wrap">${escapeHTML(JSON.stringify(f,null,2))}</pre></details>`;
+  $("status").textContent="Đã chấm và thêm vào bộ hiệu chuẩn cục bộ.";
+ }catch(e){$("status").textContent=e.message}
+ finally{$("scoreBtn").disabled=false}
+});
+$("clearBtn").addEventListener("click",()=>{["sampleId","sourceUrl","humanOverall","humanTR","humanCC","humanLR","humanGRA","question","essay"].forEach(id=>$(id).value="");$("result").innerHTML="";$("status").textContent=""});
+$("clearRunsBtn").addEventListener("click",()=>{if(confirm("Xóa toàn bộ lịch sử hiệu chuẩn trên trình duyệt này?")){runs=[];localStorage.setItem(STORE,"[]");renderRuns()}});
+$("exportBtn").addEventListener("click",()=>{const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),runs},null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="writewiser-v13-calibration-results.json";a.click();URL.revokeObjectURL(a.href)});
+async function loadAdminTools(){
+ try{const me=await api("/api/me");if(!me.user||me.user.role!=="admin")return;$("adminCalibrationPanel").hidden=false;
+  const refs=await api("/api/scoring-resources");const root=$("adminReferenceList");root.innerHTML=(refs.references||[]).map(r=>`<div class="ref-item"><strong>${escapeHTML(r.title||"Nguồn tham chiếu")}</strong><p><a href="${escapeHTML(r.url||"#")}" target="_blank" rel="noopener">${escapeHTML(r.url||"")}</a></p><button type="button" class="button secondary" data-delete-ref="${escapeHTML(r.id||r.url||r.title||"")}">Ẩn/xóa nguồn khỏi danh mục</button></div>`).join("");root.querySelectorAll("[data-delete-ref]").forEach(b=>b.addEventListener("click",async()=>{if(!confirm("Ẩn nguồn này khỏi danh mục tham chiếu?"))return;try{await api("/api/admin/references/"+encodeURIComponent(b.dataset.deleteRef),{method:"DELETE"});await loadReferences();await loadAdminTools()}catch(e){$("adminReferenceStatus").textContent=e.message}}));
+  const cals=await api("/api/admin/calibrations");$("adminCalibrationList").innerHTML=(cals.items||[]).map(x=>`<div class="ref-item"><strong>${escapeHTML(x.payload.task||"")}</strong> · ${escapeHTML(JSON.stringify(x.payload.corrected_bands||{}))}<p>${escapeHTML(x.payload.reasoning||"")}</p><button class="button secondary" data-disable-cal="${escapeHTML(x.id)}">Ngừng áp dụng</button></div>`).join("");document.querySelectorAll("[data-disable-cal]").forEach(b=>b.addEventListener("click",async()=>{await api("/api/admin/calibrations/"+encodeURIComponent(b.dataset.disableCal),{method:"DELETE"});await loadAdminTools()}));
+  const pending=await api("/api/admin/feedback-corrections");$("pendingCorrectionsList").innerHTML=(pending.items||[]).filter(x=>x.status!=="approved").map(x=>`<div class="ref-item"><strong>${escapeHTML(x.username)} · ${escapeHTML(x.payload.task||"")}</strong><p>${escapeHTML(x.payload.reasoning||"Không ghi lý do")}</p><p>Band hiệu chỉnh: ${escapeHTML(JSON.stringify(x.payload.corrected_bands||{}))}</p><button class="button primary" data-promote-correction="${escapeHTML(x.id)}">Duyệt làm hiệu chuẩn chung</button></div>`).join("")||'<p class="muted">Không có hiệu chỉnh chờ duyệt.</p>';document.querySelectorAll("[data-promote-correction]").forEach(b=>b.addEventListener("click",async()=>{try{await api("/api/admin/promote-correction",{method:"POST",body:JSON.stringify({id:b.dataset.promoteCorrection})});await loadAdminTools()}catch(e){alert(e.message)}}));
+ }catch(e){console.warn("Admin calibration panel:",e.message)}
+}
+$("addReferenceButton")?.addEventListener("click",async()=>{const status=$("adminReferenceStatus");try{const reference={title:$("newRefTitle").value.trim(),url:$("newRefUrl").value.trim(),kind:$("newRefKind").value.trim()||"Reference source",publisher:$("newRefPublisher").value.trim(),use:$("newRefUse").value.trim(),notes:"Được admin thêm trong WriteWiser."};await api("/api/admin/references",{method:"POST",body:JSON.stringify({reference})});status.textContent="Đã thêm nguồn tham chiếu.";["newRefTitle","newRefUrl","newRefKind","newRefPublisher","newRefUse"].forEach(id=>$(id).value="");await loadReferences();await loadAdminTools()}catch(e){status.textContent=e.message}});
+$("addAdminCalibrationButton")?.addEventListener("click",async()=>{const status=$("adminCalStatus");try{let corrected_bands;try{corrected_bands=JSON.parse($("adminCalBands").value)}catch{throw new Error("Band JSON không hợp lệ.")}if(!$("adminCalQuestion").value.trim()||!$("adminCalEssay").value.trim()||!$("adminCalReason").value.trim())throw new Error("Cần đề bài, trích đoạn bài và căn cứ hiệu chuẩn.");await api("/api/admin/calibrations",{method:"POST",body:JSON.stringify({payload:{task:$("adminCalTask").value,question:$("adminCalQuestion").value.trim(),essay_excerpt:$("adminCalEssay").value.trim().slice(0,1800),corrected_bands,reasoning:$("adminCalReason").value.trim()}})});status.textContent="Đã lưu hiệu chuẩn dùng chung. Tối đa 3 mục gần nhất sẽ được đưa vào prompt chấm.";await loadAdminTools()}catch(e){status.textContent=e.message}});
+renderRuns();loadReferences();loadAdminTools();
+</script>
+</body></html>

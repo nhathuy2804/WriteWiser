@@ -1,0 +1,89 @@
+{
+  "version": "2026-10",
+  "source": {
+    "title": "IELTS Writing Band Descriptors",
+    "publisher": "IELTS",
+    "updated": "May 2023",
+    "url": "https://ielts.org/cdn/ielts-guides/ielts-writing-band-descriptors.pdf",
+    "note": "Descriptions below are Draftwise-authored paraphrases for study, not verbatim reproduction or official scoring software."
+  },
+  "bands": {
+    "0": {
+      "TA": "Chỉ áp dụng trong trường hợp không có bài trả lời hợp lệ/không tham dự/không thử làm, dùng ngôn ngữ khác hoàn toàn hoặc có bằng chứng bài bị ghi nhớ hoàn toàn theo quy định chấm; không dùng chỉ vì bài yếu.",
+      "TR": "Chỉ áp dụng trong trường hợp không có bài trả lời hợp lệ/không tham dự/không thử làm, dùng ngôn ngữ khác hoàn toàn hoặc có bằng chứng bài bị ghi nhớ hoàn toàn theo quy định chấm; không dùng chỉ vì bài yếu.",
+      "CC": "Chỉ áp dụng trong trường hợp không có bài trả lời hợp lệ/không tham dự/không thử làm, dùng ngôn ngữ khác hoàn toàn hoặc có bằng chứng bài bị ghi nhớ hoàn toàn theo quy định chấm; không dùng chỉ vì bài yếu.",
+      "LR": "Chỉ áp dụng trong trường hợp không có bài trả lời hợp lệ/không tham dự/không thử làm, dùng ngôn ngữ khác hoàn toàn hoặc có bằng chứng bài bị ghi nhớ hoàn toàn theo quy định chấm; không dùng chỉ vì bài yếu.",
+      "GRA": "Chỉ áp dụng trong trường hợp không có bài trả lời hợp lệ/không tham dự/không thử làm, dùng ngôn ngữ khác hoàn toàn hoặc có bằng chứng bài bị ghi nhớ hoàn toàn theo quy định chấm; không dùng chỉ vì bài yếu."
+    },
+    "1": {
+      "TA": "Task 1: nội dung hoàn toàn không liên quan hoặc không truyền đạt thông điệp có thể đánh giá; phản hồi cực ngắn có thể không đủ bằng chứng. Task 2: nội dung hoàn toàn không liên quan đến đề hoặc chỉ có ngôn ngữ rời rạc.",
+      "TR": "Không truyền đạt được phản hồi có thể đánh giá hoặc nội dung hoàn toàn không liên quan; phản hồi cực ngắn không cung cấp đủ bằng chứng.",
+      "CC": "Không truyền đạt được thông điệp; không có bằng chứng tổ chức hoặc tiến triển có thể đánh giá.",
+      "LR": "Hầu như không có vốn từ có thể đánh giá, ngoài vài từ rời rạc hoặc cụm ghi nhớ.",
+      "GRA": "Không có ngôn ngữ có thể đánh giá về phạm vi/độ chính xác cấu trúc; phản hồi rất ngắn hoặc không thể hiểu."
+    },
+    "2": {
+      "TA": "Task 1: nội dung chỉ liên quan rất ít đến hình hoặc không truyền tải được thông tin chính; phần mô tả rất hạn chế. Task 2: nội dung hầu như không liên quan đến đề hoặc lạc đề; không có thông điệp hữu ích rõ ràng.",
+      "TR": "Phản hồi gần như không liên quan đến đề; không có lập trường/ý chính có thể đánh giá một cách đáng tin.",
+      "CC": "Hầu như không có bằng chứng về tổ chức; quan hệ giữa các ý không rõ và không tạo được tiến triển.",
+      "LR": "Vốn từ cực kỳ hạn chế; chỉ có một vài từ/cụm có thể nhận ra, không đủ để truyền đạt nhiệm vụ.",
+      "GRA": "Hầu như không có bằng chứng kiểm soát cấu trúc câu; phần lớn ngôn ngữ không tạo thành câu có thể hiểu."
+    },
+    "3": {
+      "TA": "Task 1: phản hồi không đáp ứng yêu cầu hoặc hiểu sai hình/dữ liệu; đặc điểm được nêu phần lớn không liên quan, rất ít thông tin hữu ích hoặc lặp. Task 2: không xử lý đủ phần nào của đề hoặc hiểu sai trọng tâm; lập trường trực tiếp khó tìm, ý ít và thiếu phát triển.",
+      "TR": "Đề bị hiểu sai hoặc không được xử lý phù hợp; khó xác định lập trường trả lời trực tiếp; rất ít ý liên quan, ý thường không phát triển.",
+      "CC": "Không có tổ chức logic rõ; ý rời rạc và khó kết nối; rất ít dấu hiệu liên kết hoặc các từ nối không thể hiện đúng quan hệ; phân đoạn không hỗ trợ người đọc.",
+      "LR": "Vốn từ không đủ để truyền đạt nhiệm vụ; lựa chọn từ và lỗi spelling/word formation xuất hiện dày đặc, thường khiến nghĩa khó hiểu.",
+      "GRA": "Câu văn thử nghiệm có nhưng lỗi ngữ pháp/dấu câu chiếm ưu thế; cấu trúc rất hạn chế và thông điệp phần lớn khó hiểu; độ dài có thể không đủ để chứng minh năng lực."
+    },
+    "4": {
+      "TA": "Task 1: chỉ xử lý rất ít đặc điểm hoặc hiểu sai thông tin; phần lớn số liệu/đặc điểm chính bị bỏ qua, không chính xác hoặc khó xác định; bài có thể không đáp ứng dạng mô tả dữ liệu. Task 2: không liên quan đầy đủ đến đề hoặc chỉ tiếp cận sơ sài; lập trường khó nhận ra và ý thiếu liên quan/hỗ trợ.",
+      "TR": "Đề được xử lý rất hạn chế hoặc lệch hướng; lập trường khó xác định; ý chính khó nhận diện, thiếu liên quan, rõ ràng hoặc hỗ trợ; phần lớn nội dung có thể lặp.",
+      "CC": "Thông tin không được sắp xếp mạch lạc, gần như không có tiến triển rõ; quan hệ giữa ý khó hiểu; từ nối cơ bản ít, lặp hoặc dùng sai; phân đoạn yếu hoặc không có.",
+      "LR": "Vốn từ rất hạn chế và thường không đủ cho nhiệm vụ; từ vựng cơ bản/lặp, lựa chọn từ, word form và chính tả thường sai, có thể cản trở hiểu nghĩa.",
+      "GRA": "Phạm vi cấu trúc rất hẹp; câu đơn chiếm ưu thế, câu phức hiếm hoặc lỗi nặng; lỗi ngữ pháp và dấu câu thường xuyên có thể cản trở thông điệp."
+    },
+    "5": {
+      "TA": "Task 1: lựa chọn đặc điểm còn thiếu hoặc mô tả thiên về liệt kê chi tiết; overview có thể yếu hoặc thiếu dữ liệu hỗ trợ. Task 2: trả lời chưa đầy đủ các phần, lập trường/development chưa rõ, ý chính ít được giải thích.",
+      "TR": "Một số phần đề chưa được xử lý đầy đủ; lập trường có thể xuất hiện nhưng phát triển thiếu rõ, ý hạn chế hoặc lặp và hỗ trợ chưa đủ.",
+      "CC": "Có dấu hiệu tổ chức nhưng trình tự chưa thật logic; tiến triển toàn bài yếu; liên kết giữa câu còn gượng hoặc lặp; phân đoạn có thể chưa hợp lý.",
+      "LR": "Vốn từ hạn chế nhưng tối thiểu đủ dùng; lặp từ thường xuyên, lựa chọn từ/collocation hoặc chính tả có thể gây khó khăn.",
+      "GRA": "Phạm vi cấu trúc hẹp và lặp; câu phức thường thiếu chính xác; lỗi ngữ pháp/dấu câu xuất hiện thường xuyên và đôi khi làm người đọc khó hiểu."
+    },
+    "6": {
+      "TA": "Task 1: tập trung vào yêu cầu chính, chọn và nêu các đặc điểm quan trọng, có thử đưa overview; một số chi tiết thiếu, sai hoặc chưa được minh họa đầy đủ. Task 2: xử lý các phần chính của đề và đưa ra lập trường liên quan, nhưng kết luận hoặc phát triển một số ý còn chưa rõ.",
+      "TR": "Đề được trả lời nhìn chung đúng hướng; có lập trường liên quan, nhưng một số ý chính chưa được phát triển hoặc bằng chứng/ví dụ chưa đủ thuyết phục.",
+      "CC": "Bố cục và tiến triển tổng thể có thể theo dõi; cohesive devices có tác dụng nhưng đôi lúc máy móc, dùng thiếu/thừa hoặc tham chiếu chưa rõ; topic sentence hoặc phân đoạn có thể yếu.",
+      "LR": "Từ vựng đủ và phần lớn phù hợp để truyền đạt ý; phạm vi hoặc độ chính xác còn hạn chế, có lặp, lỗi word choice, collocation, spelling/word formation.",
+      "GRA": "Có phối hợp câu đơn và câu phức nhưng tính linh hoạt còn hạn chế; câu đơn thường chính xác hơn câu phức; lỗi ngữ pháp/dấu câu hiện diện nhưng thường không cản trở thông điệp."
+    },
+    "7": {
+      "TA": "Task 1: bao quát yêu cầu, có overview rõ, chọn đúng xu hướng/khác biệt chính và minh họa phù hợp; có thể còn vài thiếu sót hoặc phần minh họa chưa phát triển hết. Task 2: xử lý các phần chính, lập trường rõ và ý chính được mở rộng/hỗ trợ, dù đôi lúc khái quát hóa hoặc thiếu độ chính xác.",
+      "TR": "Các phần chính của đề được giải quyết phù hợp; lập trường rõ và được phát triển; luận điểm có giải thích/hỗ trợ nhưng đôi lúc còn khái quát hoặc thiếu tập trung.",
+      "CC": "Ý được sắp xếp logic, có tiến triển rõ xuyên suốt; phương tiện liên kết và tham chiếu tương đối linh hoạt, dù có vài chỗ dùng chưa chuẩn hoặc quá/thiếu.",
+      "LR": "Vốn từ đủ linh hoạt và chính xác để diễn đạt; có dùng cụm ít phổ biến khi thích hợp và thể hiện nhận thức về collocation/register; một số lựa chọn từ hoặc word form vẫn chưa tự nhiên.",
+      "GRA": "Dùng nhiều cấu trúc phức với mức linh hoạt khá; ngữ pháp và dấu câu nhìn chung được kiểm soát, câu không lỗi xuất hiện thường xuyên; một số lỗi còn lại không làm gián đoạn giao tiếp."
+    },
+    "8": {
+      "TA": "Task 1: đáp ứng các yêu cầu đầy đủ và thích hợp, chọn lọc và làm nổi bật đặc điểm chính khéo léo, số liệu/so sánh rõ; chỉ có thể có thiếu sót nhỏ. Task 2: trả lời đầy đủ, lập trường rõ, ý liên quan được phát triển và hỗ trợ tốt.",
+      "TR": "Đề được xử lý đầy đủ; lập trường rõ và phát triển tốt; luận điểm liên quan, mở rộng có chiều sâu và được hỗ trợ thích đáng; chỉ có thể có vài thiếu sót nhỏ.",
+      "CC": "Thông tin và ý tưởng theo trình tự logic; mạch tiến triển rõ, liên kết được kiểm soát tốt và phân đoạn phù hợp; có thể còn vài chỗ chưa hoàn hảo.",
+      "LR": "Vốn từ rộng, linh hoạt, truyền đạt nghĩa chính xác; từ/cụm ít phổ biến được dùng có chủ đích; đôi khi có lỗi collocation hoặc word form nhưng tác động nhỏ.",
+      "GRA": "Phạm vi cấu trúc rộng, sử dụng linh hoạt và chính xác; phần lớn câu không lỗi, dấu câu được kiểm soát; lỗi hiếm, thường không lặp theo hệ thống và ít ảnh hưởng nghĩa."
+    },
+    "9": {
+      "TA": "Task 1: mọi yêu cầu được đáp ứng hoàn toàn và phù hợp; thông tin chính được chọn lọc, tổ chức và thể hiện rất chính xác; chỉ có thể có sơ suất cực hiếm. Task 2: đề được khám phá sâu, lập trường hoàn chỉnh, ý được phát triển và hỗ trợ thuyết phục.",
+      "TR": "Phản hồi trực tiếp và khám phá đề sâu sắc; lập trường hoàn chỉnh, ý liên quan được mở rộng và hỗ trợ thuyết phục; thiếu sót về nội dung hoặc hỗ trợ cực hiếm.",
+      "CC": "Bài có thể theo dõi dễ dàng; tổ chức, tiến triển, tham chiếu và liên kết tự nhiên, gần như không gây chú ý; phân đoạn được quản lý thành thạo.",
+      "LR": "Từ vựng chính xác, tinh tế, tự nhiên và linh hoạt; kiểm soát phong cách/collocation rất tốt; lỗi chính tả hoặc word formation cực hiếm và hầu như không ảnh hưởng giao tiếp.",
+      "GRA": "Phạm vi cấu trúc rộng và được sử dụng linh hoạt với kiểm soát rất cao; ngữ pháp/dấu câu phù hợp xuyên suốt; lỗi nhỏ cực hiếm."
+    }
+  },
+  "criterion_names": {
+    "TA": "Task Achievement (Task 1 Academic)",
+    "TR": "Task Response (Task 2)",
+    "CC": "Coherence and Cohesion",
+    "LR": "Lexical Resource",
+    "GRA": "Grammatical Range and Accuracy"
+  }
+}

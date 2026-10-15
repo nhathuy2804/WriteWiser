@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: draftwise
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    healthCheckPath: /api/health
+    envVars:
+      - key: DRAFTWISE_HOST
+        value: 0.0.0.0
+      - key: DRAFTWISE_SECURE_COOKIE
+        value: "1"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: TOGETHER_API_KEY
+        sync: false
+      - key: TOGETHER_MODEL
+        value: meta-llama/Llama-3.3-70B-Instruct-Turbo
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o-mini
+      - key: AI_PROVIDER_ORDER
+        value: gemini,groq,together,openrouter
+      - key: DATABASE_URL
+        sync: false
+      - key: WRITEWISER_GATE_PASSWORD
+        sync: false
+      - key: WRITEWISER_ADMIN_USERNAME
+        value: admin
+      - key: WRITEWISER_ADMIN_PASSWORD
+        sync: false

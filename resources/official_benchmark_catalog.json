@@ -1,0 +1,46 @@
+[
+  {
+    "id": "academic-task1-response1",
+    "sample": "Academic Writing Part 1 — Candidate Response 1",
+    "task": "Task 1",
+    "overall_band": 6.0,
+    "source_url": "https://ielts.org/cdn/computer-delivered-sample-tests-academic-writing/ielts-academic-writing-example-responses-to-parts-1-and-2-with-band-scores-and-examiner-comments.pdf",
+    "pdf_page": 2,
+    "human_score_type": "Official examiner-awarded task band",
+    "examiner_note": "Band 6; có overview và đặc điểm chính nhưng mô tả còn thiên về liệt kê, lặp và phạm vi cấu trúc chưa đủ rộng.",
+    "criterion_scores_available": false
+  },
+  {
+    "id": "academic-task1-response2",
+    "sample": "Academic Writing Part 1 — Candidate Response 2",
+    "task": "Task 1",
+    "overall_band": 4.0,
+    "source_url": "https://ielts.org/cdn/computer-delivered-sample-tests-academic-writing/ielts-academic-writing-example-responses-to-parts-1-and-2-with-band-scores-and-examiner-comments.pdf",
+    "pdf_page": 3,
+    "human_score_type": "Official examiner-awarded task band",
+    "examiner_note": "Band 4; thiếu đặc điểm chính, tổ chức và tiến triển yếu, lỗi từ vựng/chính tả và cấu trúc thường xuyên ảnh hưởng nghĩa.",
+    "criterion_scores_available": false
+  },
+  {
+    "id": "academic-task2-response1",
+    "sample": "Academic Writing Part 2 — Candidate Response 1",
+    "task": "Task 2",
+    "overall_band": 5.5,
+    "source_url": "https://ielts.org/cdn/computer-delivered-sample-tests-academic-writing/ielts-academic-writing-example-responses-to-parts-1-and-2-with-band-scores-and-examiner-comments.pdf",
+    "pdf_page": 4,
+    "human_score_type": "Official examiner-awarded task band",
+    "examiner_note": "Band 5.5; có lập trường và ý liên quan nhưng phát triển chưa đủ, từ vựng thiếu chính xác và lỗi ngôn ngữ còn khá nhiều.",
+    "criterion_scores_available": false
+  },
+  {
+    "id": "academic-task2-response2",
+    "sample": "Academic Writing Part 2 — Candidate Response 2",
+    "task": "Task 2",
+    "overall_band": 7.5,
+    "source_url": "https://ielts.org/cdn/computer-delivered-sample-tests-academic-writing/ielts-academic-writing-example-responses-to-parts-1-and-2-with-band-scores-and-examiner-comments.pdf",
+    "pdf_page": 5,
+    "human_score_type": "Official examiner-awarded task band",
+    "examiner_note": "Band 7.5; lập trường rõ, ý được phát triển và tổ chức logic; có một số điểm lặp liên từ và lỗi ngôn ngữ còn sót.",
+    "criterion_scores_available": false
+  }
+]
