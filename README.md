@@ -1,6 +1,12 @@
-# WriteWiser v28 — phân đoạn theo cấu trúc IELTS Task 1/Task 2
+# WriteWiser v30 — metadata chia sẻ Facebook/Open Graph và lưu bản nháp theo tài khoản
 
 Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để triển khai nhiều người dùng trên hosting từ xa.
+
+## Chia sẻ lên Facebook
+- Trang chính và trang hiệu chuẩn có Open Graph/Twitter Card metadata với ảnh xem trước `assets/og-image-v30.png` (1200×630).
+- Server trả URL tuyệt đối theo `PUBLIC_BASE_URL` nếu đặt biến này; nếu không, dùng host/protocol từ request/reverse proxy.
+- Nếu website có tên miền riêng, nên đặt `PUBLIC_BASE_URL=https://ten-mien-cua-ban` trong Environment trên Render để metadata luôn nhất quán.
+- Sau khi deploy, có thể dùng Facebook Sharing Debugger để yêu cầu Facebook đọc lại metadata sau khi thay đổi ảnh hoặc mô tả.
 
 ## Kiến trúc
 - Render Free Web Service chạy Python HTTP server; `render.yaml` khai báo build/start/health check.
@@ -193,3 +199,20 @@ Các trang `index.html` và `calibration.html` sử dụng biểu tượng Write
 - IELTS Writing Task 2: đúng 4 đoạn Introduction, Body 1, Body 2, Conclusion.
 - API từ chối kết quả nếu AI không trả đúng bốn đoạn, nhãn, thứ tự hoặc không dùng đủ từng câu.
 - Trong trình nhập đề và trình quản lý đề, lựa chọn Task hiện tại được gửi kèm yêu cầu tách đoạn. Nội dung câu không bị viết lại; các ranh giới đoạn được thể hiện bằng dòng trống.
+
+
+## v29 — Lưu và tiếp tục bản nháp theo tài khoản
+
+- Trong trang luyện tập, nhấn **Lưu bản nháp vào tài khoản** để lưu đề đang làm, chế độ luyện, câu hiện tại, nội dung dịch ngược/tự viết, mindmap Brainstorm và trạng thái đồng hồ vào database của tài khoản.
+- Khi đăng nhập trên trình duyệt hoặc thiết bị khác, mở trang luyện tập và chọn **Tiếp tục bản nháp** để khôi phục tiến độ đã lưu. Đồng hồ được khôi phục ở trạng thái tạm dừng để tránh tự chạy khi người dùng chưa sẵn sàng.
+- Bản nháp được lưu theo tài khoản, không chia sẻ giữa các tài khoản. Nếu chưa nhấn lưu sau khi chỉnh sửa, các thay đổi mới nhất chưa chắc đã có trên máy chủ.
+- API `PUT /api/state` chấp nhận metadata `studyDraft` đã được giới hạn và lưu chung trong hàng `user_state` của tài khoản.
+
+
+## v29 — Lưu và tiếp tục bản nháp theo tài khoản
+
+- Trong trang luyện tập, nút **Lưu bản nháp vào tài khoản** lưu trạng thái hiện tại vào hàng `user_state` của đúng tài khoản đang đăng nhập.
+- Bản nháp bao gồm đề đang làm, chế độ Dịch ngược/Tự viết, câu hiện tại, câu trả lời, bài tự viết, Brainstorm, chế độ đồng hồ và thời gian đã trôi qua. Đồng hồ được phục hồi ở trạng thái tạm dừng.
+- Khi tài khoản đăng nhập lại hoặc đăng nhập trên thiết bị khác, WriteWiser tự mở lại bản nháp đã lưu gần nhất nếu đề đó vẫn tồn tại và có quyền truy cập. Nút **Tiếp tục bản nháp đã lưu** vẫn dùng được để mở lại sau này.
+- Dữ liệu thuộc riêng tài khoản. Chỉ những thay đổi đã bấm Lưu bản nháp mới được đảm bảo đồng bộ như một phiên làm việc hoàn chỉnh; nội dung vẫn có autosync hiện có, nhưng cần bấm lưu để cập nhật vị trí câu/chế độ/đồng hồ.
+- Biến `studyDraft` được lưu trong JSON `user_state`, không cần thêm bảng hoặc chạy migration.

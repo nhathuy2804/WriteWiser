@@ -735,7 +735,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "28-ielts-paragraph-structure", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "30-social-preview-metadata", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -796,6 +796,42 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Location", "/")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
+            return
+        # Facebook/Open Graph crawlers need absolute URLs in the raw HTML.
+        # Render's host may differ between deployments, so derive the public origin
+        # from PUBLIC_BASE_URL (preferred) or the reverse-proxy request headers.
+        if path in ("/", "/index.html", "/calibration.html"):
+            page_file = BASE / ("calibration.html" if path == "/calibration.html" else "index.html")
+            try:
+                page_html = page_file.read_text(encoding="utf-8")
+            except OSError:
+                return self.send_error(404, "Page not found")
+            configured_base = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+            origin = ""
+            if configured_base:
+                parsed_base = urlparse(configured_base)
+                if parsed_base.scheme in ("http", "https") and parsed_base.netloc and not parsed_base.username and not parsed_base.password:
+                    origin = f"{parsed_base.scheme}://{parsed_base.netloc}"
+            if not origin:
+                host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "localhost:8000").split(",")[0].strip()
+                if not re.fullmatch(r"[A-Za-z0-9.\-\[\]:]+", host):
+                    host = "localhost:8000"
+                proto = (self.headers.get("X-Forwarded-Proto") or ("http" if host.startswith(("localhost", "127.0.0.1")) else "https")).split(",")[0].strip().lower()
+                if proto not in ("http", "https"):
+                    proto = "https"
+                origin = f"{proto}://{host}"
+            public_path = "/calibration.html" if path == "/calibration.html" else "/"
+            public_url = html.escape(origin + public_path, quote=True)
+            image_url = html.escape(origin + "/assets/og-image-v30.png", quote=True)
+            page_html = page_html.replace("__WW_PUBLIC_URL__", public_url).replace("__WW_OG_IMAGE_URL__", image_url)
+            raw = page_html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(raw)
             return
         if path == "/":
             self.path = "/index.html"
@@ -1305,7 +1341,31 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
         if not isinstance(state, dict):
             return self.send_json(400, {"error": "Thiếu dữ liệu học tập hợp lệ."})
         # Keep storage bounded and accept only expected top-level fields.
-        state = {k: state.get(k) for k in ("profile", "answers", "lessonAnswers", "independentDrafts", "brainstormDrafts", "currentLessonId", "history", "mistakes", "customLessons") if k in state}
+        state = {k: state.get(k) for k in ("profile", "answers", "lessonAnswers", "independentDrafts", "brainstormDrafts", "currentLessonId", "history", "mistakes", "customLessons", "studyDraft") if k in state}
+        # Keep only small, non-sensitive resume metadata; all draft contents remain
+        # in the account-scoped user_state payload above.
+        draft = state.get("studyDraft")
+        if isinstance(draft, dict):
+            lesson_id = draft.get("lessonId")
+            mode = draft.get("practiceMode")
+            timer_mode = draft.get("timerMode")
+            def bounded_int(value, default, maximum):
+                try: parsed = int(value)
+                except (TypeError, ValueError, OverflowError): parsed = default
+                return max(0, min(maximum, parsed))
+            state["studyDraft"] = {
+                "version": 1,
+                "lessonId": lesson_id[:200] if isinstance(lesson_id, str) else "",
+                "practiceMode": mode if mode in ("reverse", "independent") else "reverse",
+                "activeSentenceIndex": bounded_int(draft.get("activeSentenceIndex", 0), 0, 500),
+                "timerMode": timer_mode if timer_mode in ("practice", "exam") else "practice",
+                "examDuration": bounded_int(draft.get("examDuration", 0), 0, 240),
+                "timerElapsedSeconds": bounded_int(draft.get("timerElapsedSeconds", 0), 0, 86400),
+                "brainstormOpen": bool(draft.get("brainstormOpen", False)),
+                "savedAt": str(draft.get("savedAt", ""))[:40]
+            }
+        else:
+            state.pop("studyDraft", None)
         serialized = json.dumps(state, ensure_ascii=False)
         if len(serialized.encode("utf-8")) > 1_500_000:
             return self.send_json(413, {"error": "Dữ liệu học tập vượt quá giới hạn lưu trữ."})
@@ -1323,11 +1383,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v27 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v30 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v27.")
+        print("\nStopping WriteWiser v30.")
     finally:
         server.server_close()
 

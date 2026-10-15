@@ -3,12 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f8fa">
-    <link rel="icon" href="/favicon.ico?v=26" sizes="any">
+  <meta name="theme-color" content="#f8eedf">
+  <meta name="description" content="WriteWiser giúp bạn luyện IELTS Writing với thư viện đề, dịch ngược từng câu Anh–Việt, Practice/Exam, Brainstorm và phản hồi AI chi tiết.">
+  <meta name="application-name" content="WriteWiser">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="__WW_PUBLIC_URL__">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="WriteWiser">
+  <meta property="og:locale" content="vi_VN">
+  <meta property="og:title" content="WriteWiser — Luyện IELTS Writing thông minh hơn">
+  <meta property="og:description" content="Luyện dịch ngược từng câu, tự viết Writing, Brainstorm và nhận phản hồi AI chi tiết trong một không gian học tập thống nhất.">
+  <meta property="og:url" content="__WW_PUBLIC_URL__">
+  <meta property="og:image" content="__WW_OG_IMAGE_URL__">
+  <meta property="og:image:secure_url" content="__WW_OG_IMAGE_URL__">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="WriteWiser — giao diện thư viện IELTS Writing với tông Almond Wisp, Jojoba và Modern Mocha.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="WriteWiser — Luyện IELTS Writing thông minh hơn">
+  <meta name="twitter:description" content="Luyện dịch ngược, tự viết, Brainstorm và nhận phản hồi AI chi tiết.">
+  <meta name="twitter:image" content="__WW_OG_IMAGE_URL__">
+  <link rel="icon" href="/favicon.ico?v=26" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png?v=26">
   <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png?v=26">
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon-180.png?v=26">
-<title>WriteWiser — IELTS Writing</title>
+<title>WriteWiser — Luyện IELTS Writing thông minh hơn</title>
   <link rel="stylesheet" href="styles.css?v=27">
 </head>
 <body class="gate-locked">
@@ -98,7 +118,11 @@
       <section id="practiceView" class="view">
         <div class="page-heading">
           <div><div class="eyebrow">REVERSE TRANSLATION WORKSPACE</div><h1>Luyện viết, <em>từng câu một.</em></h1><p>Đọc toàn bộ bản dịch. Tự viết tiếng Anh. Chỉ xem kết quả khi bạn nộp cả bài.</p></div>
-          <div class="heading-chip"><span class="live-dot"></span> Lưu tự động</div>
+          <div class="draft-account-controls" aria-label="Lưu và tiếp tục bản nháp">
+            <button type="button" class="button secondary" id="saveAccountDraftButton">☁ Đăng nhập để lưu</button>
+            <button type="button" class="button primary" id="resumeAccountDraftButton" hidden>↻ Tiếp tục bản nháp đã lưu</button>
+            <span id="savedDraftStatus" class="draft-account-status" role="status">Đăng nhập để lưu và tiếp tục trên thiết bị khác.</span>
+          </div>
         </div>
 
         <div class="mode-switcher" id="practiceModeSwitcher" role="tablist" aria-label="Chế độ luyện IELTS Writing">
