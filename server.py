@@ -735,7 +735,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "27-paragraph-brainstorm-sentence-check", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "28-ielts-paragraph-structure", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -974,21 +974,37 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(400, {"error": "Không thể phân tích tệp: " + str(e)[:160]})
         if path == "/api/segment-paragraphs":
             sentences=data.get("sentences")
-            if not isinstance(sentences,list) or not 2<=len(sentences)<=60 or any(not isinstance(x,str) or not x.strip() or len(x)>2500 for x in sentences):
-                return self.send_json(400,{"error":"Danh sách câu không hợp lệ. Tách đoạn hỗ trợ từ 2 đến 60 câu."})
-            system="""Bạn là chuyên gia biên tập đoạn văn học thuật. Bạn KHÔNG được viết lại, sửa, lược bỏ hoặc thêm câu. Chỉ nhóm các câu theo logic đoạn văn IELTS Writing. Mỗi đoạn nên có một chức năng chính rõ ràng; giữ nguyên thứ tự câu. Trả JSON duy nhất dạng {\"groups\":[[1,2,3],[4,5],[6,7,8]]}, trong đó số câu là chỉ số 1-based theo danh sách đầu vào. Mỗi số từ 1 đến N phải xuất hiện đúng một lần; không thiếu, không trùng. Nếu không chắc ranh giới, hãy nhóm theo mạch ý phổ biến: Introduction, Overview/Body paragraphs cho Task 1; Introduction, Body paragraphs, Conclusion cho Task 2."""
-            prompt="Hãy nhóm danh sách câu sau thành các đoạn hợp lý. Chỉ trả về JSON theo schema.\n"+json.dumps({"sentences":[{"number":i+1,"text":x} for i,x in enumerate(sentences)]},ensure_ascii=False)
+            task=str(data.get("task", "Task 2")).strip()
+            if task not in ("Task 1", "Task 2"):
+                return self.send_json(400,{"error":"Task phải là Task 1 hoặc Task 2."})
+            if not isinstance(sentences,list) or not 4<=len(sentences)<=60 or any(not isinstance(x,str) or not x.strip() or len(x)>2500 for x in sentences):
+                return self.send_json(400,{"error":"Cần từ 4 đến 60 câu để phân bài vào đúng 4 đoạn theo cấu trúc IELTS."})
+            if task == "Task 1":
+                roles=["Introduction","Overview","Body 1","Body 2"]
+                guidance="""CẤU TRÚC BẮT BUỘC cho IELTS Academic Writing Task 1: đúng 4 đoạn theo thứ tự sau. 1) Introduction: diễn đạt lại yêu cầu biểu đồ/bảng/bản đồ/quy trình, không đưa overview vào đây. 2) Overview: khái quát các xu hướng/đặc điểm nổi bật, không liệt kê số liệu chi tiết. 3) Body 1: nhóm số liệu/đặc điểm chi tiết thứ nhất theo logic phù hợp. 4) Body 2: nhóm số liệu/đặc điểm chi tiết còn lại để so sánh/đối chiếu. Không tạo Conclusion cho Task 1. Dùng toàn bộ câu đầu vào, giữ nguyên thứ tự câu; không viết lại, sửa, lược bỏ, thêm hoặc nhân bản câu. Nếu bài gốc trộn các chức năng, hãy gán ranh giới theo chức năng chủ đạo của từng câu nhưng vẫn giữ thứ tự."""
+            else:
+                roles=["Introduction","Body 1","Body 2","Conclusion"]
+                guidance="""CẤU TRÚC BẮT BUỘC cho IELTS Writing Task 2: đúng 4 đoạn theo thứ tự sau. 1) Introduction: paraphrase chủ đề và nêu lập trường/định hướng trả lời nếu có. 2) Body 1: luận điểm chính thứ nhất cùng giải thích/ví dụ hỗ trợ. 3) Body 2: luận điểm chính thứ hai hoặc góc nhìn còn lại cùng giải thích/ví dụ hỗ trợ. 4) Conclusion: tổng kết lập luận và nhắc lại câu trả lời/lập trường, không mở ý mới. Dùng toàn bộ câu đầu vào, giữ nguyên thứ tự câu; không viết lại, sửa, lược bỏ, thêm hoặc nhân bản câu. Nếu bài gốc trộn các chức năng, hãy gán ranh giới theo chức năng chủ đạo của từng câu nhưng vẫn giữ thứ tự."""
+            system=("Bạn là chuyên gia IELTS Writing và biên tập đoạn văn học thuật. " + guidance + " Trả JSON duy nhất với schema {\"paragraphs\":[{\"role\":\""+roles[0]+"\",\"sentences\":[1,2]},{\"role\":\""+roles[1]+"\",\"sentences\":[3]},{\"role\":\""+roles[2]+"\",\"sentences\":[4]},{\"role\":\""+roles[3]+"\",\"sentences\":[5,6]}]}. Phải có đúng 4 đối tượng, dùng chính xác nhãn role theo thứ tự: " + ", ".join(roles) + ". Mỗi đoạn phải có ít nhất một câu. Chỉ số câu là số nguyên 1-based trong danh sách đầu vào. Mỗi số từ 1 đến N phải xuất hiện đúng một lần, theo thứ tự tăng dần toàn bài, không thiếu, không trùng. Không thêm tiêu đề vào nội dung bài; role chỉ là metadata.")
+            prompt="Phân đoạn bài theo đúng cấu trúc bắt buộc của "+task+". Đọc chức năng giao tiếp của các câu rồi tạo đúng 4 đoạn theo nhãn yêu cầu. Chỉ trả JSON.\n"+json.dumps({"task":task,"required_roles":roles,"sentences":[{"number":i+1,"text":x} for i,x in enumerate(sentences)]},ensure_ascii=False)
             try:
-                result,model=ai_generate(system,prompt,max_output_tokens=1800)
-                groups=result.get("groups") if isinstance(result,dict) else None
-                if not isinstance(groups,list) or not groups or any(not isinstance(g,list) or not g for g in groups):
-                    return self.send_json(502,{"error":"AI không trả về cấu trúc đoạn hợp lệ. Hãy giữ dòng trống thủ công hoặc thử lại."})
-                try: groups=[[int(i)-1 for i in g] for g in groups]
-                except (TypeError,ValueError): return self.send_json(502,{"error":"AI trả về số câu không hợp lệ khi tách đoạn."})
-                flat=[i for g in groups for i in g]
+                result,model=ai_generate(system,prompt,max_output_tokens=2200)
+                paragraphs=result.get("paragraphs") if isinstance(result,dict) else None
+                if not isinstance(paragraphs,list) or len(paragraphs)!=4:
+                    return self.send_json(502,{"error":"AI chưa trả đúng 4 đoạn theo cấu trúc IELTS. Hãy thử lại hoặc chỉnh dòng trống thủ công."})
+                groups=[]
+                for i,(paragraph,expected_role) in enumerate(zip(paragraphs,roles)):
+                    if not isinstance(paragraph,dict) or str(paragraph.get("role","")).strip().casefold()!=expected_role.casefold():
+                        return self.send_json(502,{"error":"AI trả nhãn đoạn không đúng thứ tự IELTS ("+", ".join(roles)+"). Không áp dụng kết quả; hãy thử lại."})
+                    idxs=paragraph.get("sentences")
+                    if not isinstance(idxs,list) or not idxs:
+                        return self.send_json(502,{"error":"Mỗi đoạn IELTS phải có ít nhất một câu; AI chưa phân đủ đoạn."})
+                    try: groups.append([int(i)-1 for i in idxs])
+                    except (TypeError,ValueError): return self.send_json(502,{"error":"AI trả về chỉ số câu không hợp lệ khi tách đoạn."})
+                flat=[i for group in groups for i in group]
                 if flat!=list(range(len(sentences))):
-                    return self.send_json(502,{"error":"AI đã làm thiếu hoặc lặp câu khi tách đoạn. Không áp dụng thay đổi; hãy thử lại."})
-                return self.send_json(200,{"groups":groups,"model":model})
+                    return self.send_json(502,{"error":"AI đã làm thiếu, lặp hoặc đảo thứ tự câu. Không áp dụng thay đổi; hãy thử lại."})
+                return self.send_json(200,{"groups":groups,"roles":roles,"task":task,"model":model})
             except RuntimeError as e:
                 return self.send_json(502,{"error":str(e)})
         if path == "/api/translation-sentence-feedback":

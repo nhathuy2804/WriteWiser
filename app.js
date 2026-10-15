@@ -601,12 +601,22 @@ function assignParagraphGroupsToTextareas(englishId,vietnameseId,groups){
    if(vi.length===allSentences.length)vietnamese.value=groups.map(g=>g.map(i=>vi[i]).join("\n")).join("\n\n");
  }
 }
-async function aiSegmentParagraphs(englishId,vietnameseId,statusId,buttonId){
- const english=$(englishId),status=$(statusId),button=$(buttonId);const groups=splitEnglishParagraphGroups(english?.value||"");const sentences=groups.flat();
+function paragraphRolesForTask(task){
+ return task==="Task 1"? ["Introduction","Overview","Body 1","Body 2"] : ["Introduction","Body 1","Body 2","Conclusion"];
+}
+async function aiSegmentParagraphs(englishId,vietnameseId,statusId,buttonId,taskId){
+ const english=$(englishId),status=$(statusId),button=$(buttonId),task=$(taskId)?.value||"Task 2";const groups=splitEnglishParagraphGroups(english?.value||"");const sentences=groups.flat();
  if(!sentences.length)throw new Error("Hãy nhập bài mẫu tiếng Anh trước khi tách đoạn.");
- if(sentences.length<2){status.textContent="Bài hiện chỉ có một câu, chưa cần tách đoạn.";return;}
- button.disabled=true;const label=button.textContent;button.textContent="AI đang tách đoạn…";status.textContent="AI đang phân nhóm câu theo mạch ý. Hãy rà soát trước khi lưu.";
- try{const result=await api("/api/segment-paragraphs",{method:"POST",body:JSON.stringify({sentences})});assignParagraphGroupsToTextareas(englishId,vietnameseId,result.groups);status.textContent=`AI đã chia ${sentences.length} câu thành ${(result.groups||[]).length} đoạn bằng ${result.model||"AI"}. Rà soát các dòng trống trước khi lưu.`;}
+ if(sentences.length<4)throw new Error("Để phân vào đúng 4 đoạn IELTS, bài mẫu cần ít nhất 4 câu. Hãy bổ sung văn bản hoặc chia đoạn thủ công.");
+ const roles=paragraphRolesForTask(task);
+ button.disabled=true;const label=button.textContent;button.textContent="AI đang tách đoạn…";status.textContent=`AI đang phân bài ${task} thành đúng 4 đoạn: ${roles.join(" → ")}. Hãy rà soát trước khi lưu.`;
+ try{
+  const result=await api("/api/segment-paragraphs",{method:"POST",body:JSON.stringify({task,sentences})});
+  if(!Array.isArray(result.groups)||result.groups.length!==4)throw new Error("AI chưa tạo đúng 4 đoạn theo cấu trúc IELTS. Hãy thử lại hoặc chỉnh ranh giới đoạn thủ công.");
+  assignParagraphGroupsToTextareas(englishId,vietnameseId,result.groups);
+  const detail=result.groups.map((g,i)=>`${roles[i]} (${g.length} câu)`).join(" · ");
+  status.textContent=`Đã chia ${sentences.length} câu thành đúng 4 đoạn ${task}: ${detail}. AI không thêm nhãn vào bài mẫu; thứ tự đoạn chính là thứ tự chuẩn IELTS. Hãy rà soát trước khi lưu.`;
+ }
  finally{button.disabled=false;button.textContent=label;}
 }
 function buildTranslationPrompt(sentences){
@@ -664,10 +674,10 @@ $("autoTranslateButton")?.addEventListener("click",async()=>{
  catch(err){$("importStatus").textContent="Dịch tự động thất bại: "+err.message+" Bạn vẫn có thể tạo prompt thủ công."}
  finally{button.disabled=false;button.textContent="✦ Dịch bằng AI"}
 });
-$("segmentImportParagraphsButton")?.addEventListener("click",async()=>{try{await aiSegmentParagraphs("importEnglish","importVietnamese","importStatus","segmentImportParagraphsButton")}catch(e){$("importStatus").textContent="Không tách được đoạn: "+e.message;}});
-$("segmentAdminNewParagraphsButton")?.addEventListener("click",async()=>{try{await aiSegmentParagraphs("adminNewEnglish","adminNewVietnamese","adminNewStatus","segmentAdminNewParagraphsButton")}catch(e){$("adminNewStatus").textContent="Không tách được đoạn: "+e.message;}});
-$("segmentBuiltinParagraphsButton")?.addEventListener("click",async()=>{try{await aiSegmentParagraphs("editBuiltinEnglish","editBuiltinVietnamese","editBuiltinStatus","segmentBuiltinParagraphsButton")}catch(e){$("editBuiltinStatus").textContent="Không tách được đoạn: "+e.message;}});
-$("segmentPersonalParagraphsButton")?.addEventListener("click",async()=>{try{await aiSegmentParagraphs("editPersonalEnglish","editPersonalVietnamese","editPersonalStatus","segmentPersonalParagraphsButton")}catch(e){$("editPersonalStatus").textContent="Không tách được đoạn: "+e.message;}});
+$("segmentImportParagraphsButton")?.addEventListener("click",async()=>{try{await aiSegmentParagraphs("importEnglish","importVietnamese","importStatus","segmentImportParagraphsButton","importTask")}catch(e){$("importStatus").textContent="Không tách được đoạn: "+e.message;}});
+$("segmentAdminNewParagraphsButton")?.addEventListener("click",async()=>{try{await aiSegmentParagraphs("adminNewEnglish","adminNewVietnamese","adminNewStatus","segmentAdminNewParagraphsButton","adminNewTask")}catch(e){$("adminNewStatus").textContent="Không tách được đoạn: "+e.message;}});
+$("segmentBuiltinParagraphsButton")?.addEventListener("click",async()=>{try{await aiSegmentParagraphs("editBuiltinEnglish","editBuiltinVietnamese","editBuiltinStatus","segmentBuiltinParagraphsButton","editBuiltinTask")}catch(e){$("editBuiltinStatus").textContent="Không tách được đoạn: "+e.message;}});
+$("segmentPersonalParagraphsButton")?.addEventListener("click",async()=>{try{await aiSegmentParagraphs("editPersonalEnglish","editPersonalVietnamese","editPersonalStatus","segmentPersonalParagraphsButton","editPersonalTask")}catch(e){$("editPersonalStatus").textContent="Không tách được đoạn: "+e.message;}});
 $("importImageInput")?.addEventListener("change",async()=>{const file=$("importImageInput").files?.[0];if(!file){importVisualData="";return}if(!file.type.startsWith("image/")){ $("importStatus").textContent="Hãy chọn tệp ảnh PNG, JPG, WEBP hoặc SVG.";return}if(file.size>900_000){$("importStatus").textContent="Ảnh tối đa 900 KB để tránh đầy bộ nhớ trình duyệt.";return}importVisualData=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=reject;r.readAsDataURL(file)});window.importVisualData=importVisualData;$("importStatus").textContent="Đã gắn ảnh minh họa vào bài đang nhập."});
 
 $("makeTranslationPromptButton")?.addEventListener("click",async()=>{

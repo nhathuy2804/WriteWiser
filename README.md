@@ -1,4 +1,4 @@
-# WriteWiser v25 — footer bản quyền và liên hệ trên nền tảng v13
+# WriteWiser v28 — phân đoạn theo cấu trúc IELTS Task 1/Task 2
 
 Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để triển khai nhiều người dùng trên hosting từ xa.
 
@@ -186,3 +186,10 @@ Các trang `index.html` và `calibration.html` sử dụng biểu tượng Write
 - Brainstorm now structures each idea as Idea + required Explain 1 + a selectable Example or Explain 2. Existing older drafts are migrated into the newer schema. A partly filled idea is validated before requesting AI review.
 - Reverse translation has an AI check for the current sentence, independent from submitting the full exercise. It does not produce an official IELTS band.
 - Added API endpoints: `/api/segment-paragraphs` and `/api/translation-sentence-feedback`. The latter requires a signed-in user.
+
+
+## v28 — Tách đoạn theo format IELTS
+- IELTS Academic Task 1: đúng 4 đoạn Introduction, Overview, Body 1, Body 2.
+- IELTS Writing Task 2: đúng 4 đoạn Introduction, Body 1, Body 2, Conclusion.
+- API từ chối kết quả nếu AI không trả đúng bốn đoạn, nhãn, thứ tự hoặc không dùng đủ từng câu.
+- Trong trình nhập đề và trình quản lý đề, lựa chọn Task hiện tại được gửi kèm yêu cầu tách đoạn. Nội dung câu không bị viết lại; các ranh giới đoạn được thể hiện bằng dòng trống.
