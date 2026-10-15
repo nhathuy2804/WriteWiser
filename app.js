@@ -113,6 +113,12 @@ const BUILTIN_LESSON_COUNT = LESSONS.length;
 // Account-specific lessons are hydrated from that account's server state only.
 let customLessons = [];
 let globalLessons = [];
+// The built-in lesson list is only a bootstrap source. Never display it until the
+// authoritative server list and admin overrides have both been loaded successfully.
+let libraryLoadState = "loading"; // loading | ready | error
+let libraryLoadError = "";
+let libraryLoadGeneration = 0;
+let lastLibrarySyncAt = 0;
 // One-time migration for lessons saved locally by older v13 builds. They are assigned
 // only to the first account that signs in on this browser and then persisted server-side.
 let legacyCustomLessonsForMigration = (()=>{try{const v=JSON.parse(localStorage.getItem("draftwise.customLessons.v1")||"[]");return Array.isArray(v)?v.filter(l=>l&&typeof l.id==="string"&&Array.isArray(l.essay)):[]}catch{return []}})();
@@ -231,7 +237,10 @@ function switchView(view){
   document.querySelectorAll(".nav-item[data-view]").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
   const labels={library:"Thư viện đề",practice:"Luyện dịch ngược",history:"Lịch sử bài làm",mistakes:"Sổ tay lỗi sai",settings:"Cài đặt tài khoản",personalLessons:"Quản lý đề của tôi",adminLessons:"Quản lý thư viện",adminSettings:"Bảo mật web"};
   const crumb=$("breadcrumbCurrent");if(crumb)crumb.textContent=labels[view]||"WriteWiser";
-  if(view==="library")renderLibrary();
+  if(view==="library"){
+    if(libraryLoadState==="ready" && Date.now()-lastLibrarySyncAt>15000) loadServerLessons();
+    else renderLibrary();
+  }
   if(view==="history")renderHistory();
   if(view==="mistakes")renderMistakes();
   if(view==="settings"){updateSettingsAccess();}
@@ -445,6 +454,19 @@ function refreshLibraryFilters(){
 }
 function renderLibrary(){
  const root=$("libraryList");if(!root)return;root.innerHTML="";
+ // Avoid the stale built-in snapshot flashing before deleted/edited overrides arrive.
+ // On API errors, do not silently fall back to the obsolete in-bundle list.
+ if(libraryLoadState!=="ready"){
+   const section=document.createElement("section");section.className="library-section";
+   if(libraryLoadState==="loading"){
+     section.innerHTML='<div class="empty-state"><strong>Đang đồng bộ thư viện đề…</strong>Đang tải danh sách mới nhất từ máy chủ. Các đề đã bị xóa sẽ không được hiển thị tạm thời.</div>';
+   }else{
+     section.innerHTML=`<div class="empty-state"><strong>Không tải được thư viện đề</strong>${escapeHtml(libraryLoadError||"Máy chủ chưa trả về danh sách đề.")}<div style="margin-top:12px"><button type="button" class="button primary" id="retryLibraryLoadButton">Thử tải lại</button></div></div>`;
+   }
+   root.appendChild(section);
+   $("retryLibraryLoadButton")?.addEventListener("click",()=>loadServerLessons());
+   return;
+ }
  const filter=$("libraryFilter")?.value||"all";const typeFilter=$("libraryTypeFilter")?.value||"all";const topicFilter=$("libraryTopicFilter")?.value||"all";const sourceFilter=$("librarySourceFilter")?.value||"all";const query=($("librarySearch")?.value||"").trim().toLowerCase();
  refreshLibraryFilters();
  const lessons=LESSONS.filter(l=>!l._hidden&&(filter==="all"||l.task===filter)&&(typeFilter==="all"||l.type===typeFilter)&&(topicFilter==="all"||l.topic===topicFilter)&&(sourceFilter==="all"||(sourceFilter==="official-format"&&l.sourceType==="official-format")||(sourceFilter==="dol"&&l.sourceType==="dol")||(sourceFilter==="global"&&l.publishedGlobal)||(sourceFilter==="personal"&&l.custom&&!l.publishedGlobal)||(sourceFilter==="practice"&&l.sourceType!=="official-format"&&l.sourceType!=="dol"&&!l.custom&&!l.publishedGlobal))&&[l.title,l.topic,l.type,l.question].join(" ").toLowerCase().includes(query));
@@ -632,11 +654,34 @@ $("refreshDolButton")?.addEventListener("click",async()=>{
 });
 
 async function loadServerLessons(){
- try{const result=await api("/api/global-lessons");globalLessons=Array.isArray(result.lessons)?result.lessons.map(l=>({...l,publishedGlobal:true,custom:true})):[];applyLibraryLessons();
-   const overrides=await api("/api/library-overrides").catch(()=>({items:[]}));
-   (overrides.items||[]).forEach(item=>{const base=LESSONS.find(x=>x.id===item.id);if(!base)return;if(item.deleted)base._hidden=true;else if(item.lesson)Object.assign(base,item.lesson,{_hidden:false});});
-   renderLibrary();
- }catch(err){console.warn("Không tải được thư viện dùng chung:",err.message)}
+ const generation=++libraryLoadGeneration;
+ libraryLoadState="loading";libraryLoadError="";renderLibrary();renderAdminBuiltinLessons();
+ try{
+   // Both endpoints are required: the global lessons alone do not contain deletion/edit overrides.
+   // If overrides fail, never pretend the empty list means that no deletions exist.
+   const [result,overrides]=await Promise.all([
+     api("/api/global-lessons"),
+     api("/api/library-overrides")
+   ]);
+   if(generation!==libraryLoadGeneration)return;
+   globalLessons=Array.isArray(result.lessons)?result.lessons.map(l=>({...l,publishedGlobal:true,custom:true})):[];
+   applyLibraryLessons();
+   // Clear previously applied client-side visibility/overrides first, then apply the latest server truth.
+   LESSONS.forEach(lesson=>{lesson._hidden=false;});
+   (Array.isArray(overrides.items)?overrides.items:[]).forEach(item=>{
+     const base=LESSONS.find(x=>x.id===item.id);if(!base)return;
+     if(item.deleted)base._hidden=true;
+     else if(item.lesson)Object.assign(base,item.lesson,{_hidden:false});
+     else base._hidden=false;
+   });
+   libraryLoadState="ready";libraryLoadError="";lastLibrarySyncAt=Date.now();
+   renderLibrary();renderAdminBuiltinLessons();
+ }catch(err){
+   if(generation!==libraryLoadGeneration)return;
+   libraryLoadState="error";libraryLoadError=err?.message||"Lỗi không xác định";
+   console.warn("Không tải được thư viện dùng chung:",libraryLoadError);
+   renderLibrary();renderAdminBuiltinLessons();
+ }
 }
 function updateImportOptions(){
  const task=$("importTask")?.value||"Task 1",type=$("importType"),topic=$("importTopic");if(!type||!topic)return;
@@ -723,7 +768,7 @@ $("editPersonalLessonForm")?.addEventListener("submit",async event=>{
 });
 async function changeOwnPassword(e){e.preventDefault();const form=e.currentTarget,status=$("ownPasswordStatus"),oldPassword=$("oldAccountPassword").value,newPassword=$("newAccountPassword").value,confirmPassword=$("confirmAccountPassword").value;if(!currentUser){status.textContent="Hãy đăng nhập trước khi đổi mật khẩu.";openAccount();return}if(newPassword!==confirmPassword){status.textContent="Mật khẩu mới không khớp.";return}if(newPassword.length<8){status.textContent="Mật khẩu mới phải có ít nhất 8 ký tự.";return}try{await api("/api/account/password",{method:"POST",body:JSON.stringify({oldPassword,newPassword})});form.reset();status.textContent="Đã đổi mật khẩu thành công.";showToast("Đã cập nhật mật khẩu tài khoản.")}catch(err){status.textContent=err.message}}
 $("changeOwnPasswordForm")?.addEventListener("submit",changeOwnPassword);
-function renderAdminBuiltinLessons(){const root=$("adminBuiltinLessonsList");if(!root)return;root.innerHTML="";const managed=LESSONS.filter(l=>!l._hidden&&(!l.custom||l.publishedGlobal));if(!managed.length){root.innerHTML='<div class="empty-state"><strong>Thư viện dùng chung đang trống</strong>Nhấn “Thêm đề dùng chung” để tạo bài đầu tiên.</div>';return;}managed.forEach(l=>{const row=document.createElement("article");row.className="history-card";row.innerHTML=`<h3>${escapeHtml(l.title)}</h3><p>${escapeHtml(l.task)} · ${escapeHtml(l.type)}</p><div class="result-actions"><button class="button secondary" data-edit-builtin="${escapeHtml(l.id)}">Chỉnh sửa</button><button class="button secondary" data-delete-builtin="${escapeHtml(l.id)}">Xóa khỏi thư viện chung</button></div>`;root.appendChild(row)});root.querySelectorAll("[data-edit-builtin]").forEach(b=>b.addEventListener("click",()=>{const l=LESSONS.find(x=>x.id===b.dataset.editBuiltin);if(!l)return;$("editBuiltinId").value=l.id;$("editBuiltinTask").value=l.task;$("editBuiltinTitle").value=l.title;$("editBuiltinQuestion").value=l.question;$("editBuiltinTopic").value=l.topic;$("editBuiltinType").value=l.type;$("editBuiltinSourceUrl").value=l.sourceUrl||"";$("editBuiltinEnglish").value=(l.essay||[]).map(x=>x.en).join("\n");$("editBuiltinVietnamese").value=(l.essay||[]).map(x=>x.vi).join("\n");$("editBuiltinDialog").showModal()}));root.querySelectorAll("[data-delete-builtin]").forEach(b=>b.addEventListener("click",async()=>{const id=b.dataset.deleteBuiltin;if(!confirm("Xóa đề này khỏi thư viện dùng chung cho tất cả tài khoản?"))return;try{await api("/api/library-overrides/"+encodeURIComponent(id),{method:"DELETE",body:"{}"});const target=LESSONS.find(x=>x.id===id);if(target)target._hidden=true;renderAdminBuiltinLessons();renderLibrary();showToast("Đã gửi yêu cầu xóa đề dùng chung.")}catch(err){showToast("Chưa xóa được: "+err.message)}}));}
+function renderAdminBuiltinLessons(){const root=$("adminBuiltinLessonsList");if(!root)return;root.innerHTML="";if(libraryLoadState!=="ready"){root.innerHTML=libraryLoadState==="loading"?'<div class="empty-state"><strong>Đang tải thư viện dùng chung…</strong>Đang đồng bộ thay đổi từ máy chủ.</div>':`<div class="empty-state"><strong>Không tải được thư viện dùng chung</strong>${escapeHtml(libraryLoadError||"Lỗi kết nối máy chủ.")}<div style="margin-top:12px"><button type="button" class="button primary" id="retryAdminLibraryLoadButton">Thử tải lại</button></div></div>`;$("retryAdminLibraryLoadButton")?.addEventListener("click",()=>loadServerLessons());return;}const managed=LESSONS.filter(l=>!l._hidden&&(!l.custom||l.publishedGlobal));if(!managed.length){root.innerHTML='<div class="empty-state"><strong>Thư viện dùng chung đang trống</strong>Nhấn “Thêm đề dùng chung” để tạo bài đầu tiên.</div>';return;}managed.forEach(l=>{const row=document.createElement("article");row.className="history-card";row.innerHTML=`<h3>${escapeHtml(l.title)}</h3><p>${escapeHtml(l.task)} · ${escapeHtml(l.type)}</p><div class="result-actions"><button class="button secondary" data-edit-builtin="${escapeHtml(l.id)}">Chỉnh sửa</button><button class="button secondary" data-delete-builtin="${escapeHtml(l.id)}">Xóa khỏi thư viện chung</button></div>`;root.appendChild(row)});root.querySelectorAll("[data-edit-builtin]").forEach(b=>b.addEventListener("click",()=>{const l=LESSONS.find(x=>x.id===b.dataset.editBuiltin);if(!l)return;$("editBuiltinId").value=l.id;$("editBuiltinTask").value=l.task;$("editBuiltinTitle").value=l.title;$("editBuiltinQuestion").value=l.question;$("editBuiltinTopic").value=l.topic;$("editBuiltinType").value=l.type;$("editBuiltinSourceUrl").value=l.sourceUrl||"";$("editBuiltinEnglish").value=(l.essay||[]).map(x=>x.en).join("\n");$("editBuiltinVietnamese").value=(l.essay||[]).map(x=>x.vi).join("\n");$("editBuiltinDialog").showModal()}));root.querySelectorAll("[data-delete-builtin]").forEach(b=>b.addEventListener("click",async()=>{const id=b.dataset.deleteBuiltin;if(!confirm("Xóa đề này khỏi thư viện dùng chung cho tất cả tài khoản?"))return;try{await api("/api/library-overrides/"+encodeURIComponent(id),{method:"DELETE",body:"{}"});const target=LESSONS.find(x=>x.id===id);if(target)target._hidden=true;renderAdminBuiltinLessons();renderLibrary();showToast("Đã gửi yêu cầu xóa đề dùng chung.")}catch(err){showToast("Chưa xóa được: "+err.message)}}));}
 function updateAdminAddOptions(){
  const task=$("adminNewTask")?.value||"Task 1",type=$("adminNewType"),topic=$("adminNewTopic");if(!type||!topic)return;
  const task1=["Line graph","Bar chart","Pie chart","Table","Process diagram","Map","Mixed charts","__other__"];
@@ -757,12 +802,19 @@ updateAdminAddOptions();
 $("cancelBuiltinEdit")?.addEventListener("click",()=>$("editBuiltinDialog").close());
 $("editBuiltinForm")?.addEventListener("submit",async e=>{e.preventDefault();const id=$("editBuiltinId").value,l=LESSONS.find(x=>x.id===id);if(!l)return;const en=$("editBuiltinEnglish").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean),vi=$("editBuiltinVietnamese").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);if(!en.length||en.length!==vi.length){$("editBuiltinStatus").textContent="Số câu tiếng Anh và tiếng Việt phải bằng nhau và không được để trống.";return}const override={...l,task:$("editBuiltinTask").value,title:$("editBuiltinTitle").value.trim(),question:$("editBuiltinQuestion").value.trim(),topic:$("editBuiltinTopic").value.trim(),type:$("editBuiltinType").value.trim(),sourceUrl:$("editBuiltinSourceUrl").value.trim()||l.sourceUrl,essay:en.map((text,i)=>({en:text,vi:vi[i],hint:(l.essay[i]||{}).hint||""})),id};try{await api("/api/library-overrides",{method:"POST",body:JSON.stringify({id,lesson:override,deleted:false})});Object.assign(l,override);$("editBuiltinDialog").close();renderAdminBuiltinLessons();renderLibrary();showToast("Đã lưu thay đổi trên máy chủ.")}catch(err){$("editBuiltinStatus").textContent=err.message}});
 
+// A library tab may remain open while an admin changes shared lessons in another session.
+// Refresh only after the current server snapshot is at least 15 seconds old.
+document.addEventListener("visibilitychange",()=>{
+  const libraryView=$("libraryView");
+  if(!document.hidden&&libraryView&&!libraryView.hidden&&libraryLoadState==="ready"&&Date.now()-lastLibrarySyncAt>15000){loadServerLessons();}
+});
+
 async function bootAccessGate(){
  const form=$("accessGateForm"),button=$("gateUnlockButton");let serverReachable=false;
- try{const response=await fetch("/api/gate/status",{credentials:"same-origin"});if(!response.ok)throw new Error(`HTTP ${response.status}`);const status=await response.json();serverReachable=true;if(status.unlocked){revealApplication();await checkSession();await loadServerLessons();refreshAdminPanel();return;}}
+ try{const response=await fetch("/api/gate/status",{credentials:"same-origin"});if(!response.ok)throw new Error(`HTTP ${response.status}`);const status=await response.json();serverReachable=true;if(status.unlocked){revealApplication();await checkSession();if(libraryLoadState==="loading")await loadServerLessons();refreshAdminPanel();return;}}
  catch(err){console.warn("WriteWiser backend is not reachable:",err.message)}
  lockApplication(serverReachable?"Nhập mật khẩu truy cập chung để mở WriteWiser.":"Không kết nối được máy chủ WriteWiser. Hãy chạy run_writewiser.bat hoặc lệnh `python server.py`, sau đó mở http://127.0.0.1:8000. Không mở index.html trực tiếp và không dùng python -m http.server.");
- if(form&&!form.dataset.bound){form.dataset.bound="true";form.addEventListener("submit",async e=>{e.preventDefault();button.disabled=true;$("gateFeedback").textContent="Đang xác minh…";try{await api("/api/gate/unlock",{method:"POST",body:JSON.stringify({password:$("gatePasswordInput").value})});$("gatePasswordInput").value="";revealApplication();await checkSession();await loadServerLessons();refreshAdminPanel();renderAll();renderLibrary();$("gateFeedback").textContent="";}catch(err){$("gateFeedback").textContent=err.message+" · Hãy xác nhận bạn đã chạy server.py.";$("gatePasswordInput").focus()}finally{button.disabled=false}});}
+ if(form&&!form.dataset.bound){form.dataset.bound="true";form.addEventListener("submit",async e=>{e.preventDefault();button.disabled=true;$("gateFeedback").textContent="Đang xác minh…";try{await api("/api/gate/unlock",{method:"POST",body:JSON.stringify({password:$("gatePasswordInput").value})});$("gatePasswordInput").value="";revealApplication();await checkSession();if(libraryLoadState==="loading")await loadServerLessons();refreshAdminPanel();renderAll();renderLibrary();$("gateFeedback").textContent="";}catch(err){$("gateFeedback").textContent=err.message+" · Hãy xác nhận bạn đã chạy server.py.";$("gatePasswordInput").focus()}finally{button.disabled=false}});}
 }
 function renderHistory(){
   const root=$("historyList");root.innerHTML="";

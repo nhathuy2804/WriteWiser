@@ -1,4 +1,4 @@
-# WriteWiser v22 — sửa giao diện trên nền tảng v13
+# WriteWiser v24 — sửa đồng bộ thư viện đề trên nền tảng v13
 
 Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để triển khai nhiều người dùng trên hosting từ xa.
 
@@ -128,10 +128,10 @@ Sau khi deploy, mở `/api/scoring-status`. Bản v13 phải báo `masterPromptL
 Relevant APIs include `POST /api/account/password`, `GET/POST /api/library-overrides`, `POST /api/global-lessons` and their protected delete operations.
 
 
-## Chạy thử trên Windows (khuyến nghị — v22)
+## Chạy thử trên Windows (khuyến nghị — v24)
 
 1. Giải nén toàn bộ file ZIP vào một thư mục riêng.
-2. Mở Terminal/PowerShell ngay trong thư mục `writewiser_v22` (thư mục có `server.py`).
+2. Mở Terminal/PowerShell ngay trong thư mục dự án đã giải nén (thư mục có `server.py`).
 3. Chạy `py -3 server.py` hoặc `python server.py`.
 4. Mở `http://127.0.0.1:8000` trong trình duyệt. Không mở `index.html` bằng cách nhấp đúp, vì khi đó API đăng nhập, lưu database và cổng mật khẩu không thể hoạt động đúng.
 5. Giữ cửa sổ Terminal mở trong lúc dùng web. Mật khẩu khởi tạo chỉ xuất hiện trong Terminal ở lần tạo database đầu tiên; hãy lưu lại ngay.
@@ -159,3 +159,10 @@ Nếu Gemini trả 503/429, timeout hoặc JSON lỗi, backend thử nhà cung c
 
 ### Database tables bổ sung
 `admin_calibrations`, `feedback_corrections`, `reference_overrides`. Tất cả tồn tại trong cùng SQLite cục bộ hoặc PostgreSQL khi `DATABASE_URL` được cấu hình.
+
+## v24 — đồng bộ thư viện đề dùng chung
+
+- Thư viện không hiển thị danh sách đề mẫu trong bundle trước khi cả `/api/global-lessons` và `/api/library-overrides` tải thành công.
+- Nếu một trong hai API lỗi, giao diện hiện thông báo lỗi và nút thử lại; không coi API override lỗi là danh sách override rỗng.
+- Các override mới nhất được áp dụng sau mỗi lần tải; khi quay lại tab thư viện hoặc tab trình duyệt được mở lại sau một khoảng thời gian, danh sách được đồng bộ lại.
+- Sửa phiên bản health endpoint thành `24-library-sync-fix`.
