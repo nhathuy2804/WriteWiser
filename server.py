@@ -318,10 +318,13 @@ def extract_docx_text(raw):
     for para in root.findall(".//w:p", ns):
         text="".join(node.text or "" for node in para.findall(".//w:t", ns)).strip()
         if text: paragraphs.append(text)
-    return "\n".join(paragraphs)
+    return "\n\n".join(paragraphs)
 
 def infer_import_sections(text, filename):
-    lines=[line.strip() for line in str(text).replace("\r", "").split("\n") if line.strip()]
+    # Preserve empty lines because they encode paragraph boundaries for reverse translation.
+    lines=[line.strip() for line in str(text).replace("\r", "").split("\n")]
+    while lines and not lines[0]: lines.pop(0)
+    while lines and not lines[-1]: lines.pop()
     title=Path(filename).stem[:180] if filename else "Bài nhập mới"
     question=""
     body_lines=[]
@@ -346,15 +349,19 @@ def infer_import_sections(text, filename):
             saw_essay=True; mode="essay"
             if em.group(1).strip(): essay_lines.append(em.group(1).strip())
             continue
+        if not line:
+            target=question_lines if mode=="question" else essay_lines if mode=="essay" else body_lines
+            if target and target[-1] != "": target.append("")
+            continue
         if mode=="question": question_lines.append(line)
         elif mode=="essay": essay_lines.append(line)
         else: body_lines.append(line)
     if saw_question and saw_essay:
-        question=" ".join(question_lines).strip()
+        question=" ".join(x for x in question_lines if x).strip()
         body="\n".join(essay_lines).strip()
     else:
         question=""
-        body="\n".join(lines).strip()
+        body="\n".join(body_lines or lines).strip()
     return {"title":title,"question":question,"english":body}
 
 def parse_import_file(data):
@@ -389,7 +396,11 @@ def parse_import_file(data):
             if isinstance(en,str) and "essay" not in item: item["english"]=en
         return {"kind":"bulk-json", "lessons":items[:100]}
     if suffix in ("html", "htm"):
-        parser=TextOnlyParser(); parser.feed(content); content="\n".join(x.strip() for x in " ".join(parser.parts).splitlines() if x.strip())
+        parser=TextOnlyParser(); parser.feed(content)
+        # The HTML extractor emits line breaks for block elements; do not flatten them,
+        # because paragraph boundaries must survive import into the reverse-translation editor.
+        content=re.sub(r"[ \t]+", " ", "".join(parser.parts))
+        content=re.sub(r"\n{3,}", "\n\n", content).strip()
     sections=infer_import_sections(content.strip(), filename)
     return {"kind":"text", "text":sections["english"], "meta":{"title":sections["title"], "question":sections["question"]}}
 
@@ -687,7 +698,9 @@ class Handler(SimpleHTTPRequestHandler):
         for item in essay:
             if not isinstance(item, dict) or not isinstance(item.get("en"), str) or not isinstance(item.get("vi"), str) or not item["en"].strip() or not item["vi"].strip():
                 raise ValueError("Mỗi câu phải có tiếng Anh và bản dịch tiếng Việt.")
-            clean.append({"en": item["en"].strip()[:2500], "vi": item["vi"].strip()[:2500], "hint": str(item.get("hint", ""))[:1000]})
+            paragraph_index=item.get("paragraphIndex",0)
+            if not isinstance(paragraph_index,int) or paragraph_index<0 or paragraph_index>59: paragraph_index=0
+            clean.append({"en": item["en"].strip()[:2500], "vi": item["vi"].strip()[:2500], "hint": str(item.get("hint", ""))[:1000], "paragraphIndex": paragraph_index})
         lesson["essay"] = clean
         lesson["id"] = "global-" + secrets.token_urlsafe(10).replace("-", "").replace("_", "")
         lesson["time"] = 20 if lesson["task"] == "Task 1" else 40
@@ -722,7 +735,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "25-footer-disclaimer", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "27-paragraph-brainstorm-sentence-check", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -959,6 +972,42 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(400, {"error": str(e)})
             except Exception as e:
                 return self.send_json(400, {"error": "Không thể phân tích tệp: " + str(e)[:160]})
+        if path == "/api/segment-paragraphs":
+            sentences=data.get("sentences")
+            if not isinstance(sentences,list) or not 2<=len(sentences)<=60 or any(not isinstance(x,str) or not x.strip() or len(x)>2500 for x in sentences):
+                return self.send_json(400,{"error":"Danh sách câu không hợp lệ. Tách đoạn hỗ trợ từ 2 đến 60 câu."})
+            system="""Bạn là chuyên gia biên tập đoạn văn học thuật. Bạn KHÔNG được viết lại, sửa, lược bỏ hoặc thêm câu. Chỉ nhóm các câu theo logic đoạn văn IELTS Writing. Mỗi đoạn nên có một chức năng chính rõ ràng; giữ nguyên thứ tự câu. Trả JSON duy nhất dạng {\"groups\":[[1,2,3],[4,5],[6,7,8]]}, trong đó số câu là chỉ số 1-based theo danh sách đầu vào. Mỗi số từ 1 đến N phải xuất hiện đúng một lần; không thiếu, không trùng. Nếu không chắc ranh giới, hãy nhóm theo mạch ý phổ biến: Introduction, Overview/Body paragraphs cho Task 1; Introduction, Body paragraphs, Conclusion cho Task 2."""
+            prompt="Hãy nhóm danh sách câu sau thành các đoạn hợp lý. Chỉ trả về JSON theo schema.\n"+json.dumps({"sentences":[{"number":i+1,"text":x} for i,x in enumerate(sentences)]},ensure_ascii=False)
+            try:
+                result,model=ai_generate(system,prompt,max_output_tokens=1800)
+                groups=result.get("groups") if isinstance(result,dict) else None
+                if not isinstance(groups,list) or not groups or any(not isinstance(g,list) or not g for g in groups):
+                    return self.send_json(502,{"error":"AI không trả về cấu trúc đoạn hợp lệ. Hãy giữ dòng trống thủ công hoặc thử lại."})
+                try: groups=[[int(i)-1 for i in g] for g in groups]
+                except (TypeError,ValueError): return self.send_json(502,{"error":"AI trả về số câu không hợp lệ khi tách đoạn."})
+                flat=[i for g in groups for i in g]
+                if flat!=list(range(len(sentences))):
+                    return self.send_json(502,{"error":"AI đã làm thiếu hoặc lặp câu khi tách đoạn. Không áp dụng thay đổi; hãy thử lại."})
+                return self.send_json(200,{"groups":groups,"model":model})
+            except RuntimeError as e:
+                return self.send_json(502,{"error":str(e)})
+        if path == "/api/translation-sentence-feedback":
+            user=self.session_user()
+            if not user:return self.send_json(401,{"error":"Bạn cần đăng nhập trước khi chấm câu bằng AI."})
+            sentence=data.get("sentence");answer=data.get("answer");question=data.get("question","");task=data.get("task","Task 2")
+            if not isinstance(sentence,dict) or not isinstance(sentence.get("en"),str) or not isinstance(sentence.get("vi"),str) or not isinstance(answer,str) or not answer.strip() or len(answer)>6000:
+                return self.send_json(400,{"error":"Cần có câu mẫu, bản dịch tiếng Việt và câu trả lời tiếng Anh hợp lệ."})
+            system="""Bạn là gia sư luyện dịch ngược IELTS Writing. Chỉ đánh giá MỘT câu người học đã dịch từ tiếng Việt sang tiếng Anh. Không cho band IELTS và không yêu cầu sao chép nguyên văn bài mẫu. Chấp nhận cách diễn đạt tương đương nếu đúng ý, tự nhiên, chính xác và hợp văn phong học thuật. Phản hồi bằng tiếng Việt. So sánh ý nghĩa với câu tiếng Việt; câu tiếng Anh mẫu chỉ là một tham khảo, không phải cách viết duy nhất. Xác định các lỗi cụ thể về ngữ pháp, từ vựng, collocation, nghĩa hoặc tính tự nhiên; nếu câu đúng, không bịa lỗi. Trả JSON duy nhất: {\"status\":\"correct|minor_issue|error\",\"summary\":\"nhận xét ngắn\",\"strengths\":[\"...\"],\"errors\":[{\"original\":\"đoạn nguyên văn sai\",\"correction\":\"cách sửa\",\"explanation\":\"vì sao\"}],\"corrected_sentence\":\"bản sửa tối thiểu, giữ ý người học\"}. Mỗi original phải là một đoạn liên tục chính xác trong bài làm; nếu không lỗi thì errors là []. Hạn chế sửa toàn câu nếu chỉ có một lỗi nhỏ."""
+            prompt="Đề bài: "+str(question)[:3000]+"\nTask: "+str(task)+"\nCâu nguồn tiếng Việt: "+sentence["vi"]+"\nCâu mẫu tiếng Anh (chỉ để đối chiếu): "+sentence["en"]+"\nCâu do người học viết: "+answer+"\nHãy chấm riêng câu này theo schema đã nêu."
+            try:
+                feedback,model=ai_generate(system,prompt,max_output_tokens=2200)
+                if not isinstance(feedback,dict) or not isinstance(feedback.get("errors"),list) or feedback.get("status") not in ("correct","minor_issue","error"):
+                    return self.send_json(502,{"error":"AI trả về nhận xét câu không đúng cấu trúc. Hãy thử lại."})
+                feedback["errors"]=[e for e in feedback["errors"] if isinstance(e,dict)][:6]
+                feedback["strengths"]=[str(x)[:500] for x in feedback.get("strengths",[]) if isinstance(x,str)][:4]
+                return self.send_json(200,{"feedback":feedback,"model":model})
+            except RuntimeError as e:
+                return self.send_json(502,{"error":str(e)})
         if path == "/api/translate":
             sentences=data.get("sentences")
             if not isinstance(sentences,list) or not sentences or len(sentences)>60 or any(not isinstance(x,str) or not x.strip() or len(x)>2500 for x in sentences):
@@ -968,8 +1017,23 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 result,model=ai_generate(system,prompt,max_output_tokens=7000)
                 translations=result.get("translations") if isinstance(result,dict) else None
-                if not isinstance(translations,list) or len(translations)!=len(sentences) or any(not isinstance(x,str) for x in translations):
-                    return self.send_json(502,{"error":"Gemini không giữ đúng số câu. Hãy thử lại hoặc dịch theo đoạn ngắn hơn."})
+                if not isinstance(translations,list) or len(translations)!=len(sentences) or any(not isinstance(x,str) or not x.strip() for x in translations):
+                    # Retry only on structural mismatch, using smaller batches so the model is less likely to merge sentences.
+                    translations=[]; models=[]; retry_failed=False
+                    for start in range(0,len(sentences),5):
+                        batch=sentences[start:start+5]
+                        retry_prompt="Dịch từng câu sang tiếng Việt. Giữ nguyên đúng số câu và thứ tự; chỉ trả JSON {\"translations\":[...]}.\n"+json.dumps({"sentences":batch},ensure_ascii=False)
+                        try:
+                            retry_result,retry_model=ai_generate(system,retry_prompt,max_output_tokens=2200)
+                            batch_translations=retry_result.get("translations") if isinstance(retry_result,dict) else None
+                            if not isinstance(batch_translations,list) or len(batch_translations)!=len(batch) or any(not isinstance(x,str) or not x.strip() for x in batch_translations):
+                                retry_failed=True;break
+                            translations.extend(batch_translations);models.append(retry_model)
+                        except RuntimeError:
+                            retry_failed=True;break
+                    if retry_failed or len(translations)!=len(sentences):
+                        return self.send_json(502,{"error":"AI chưa giữ đúng số câu dù đã thử dịch theo nhóm 5 câu. Hãy dùng nút AI tách đoạn, rồi thử lại hoặc dịch từng đoạn ngắn hơn."})
+                    model=" + ".join(dict.fromkeys(models)) or model
                 return self.send_json(200,{"translations":translations,"model":model})
             except RuntimeError as e:
                 code=503 if "GEMINI_API_KEY" in str(e) else (429 if "quota" in str(e).lower() else 502)
@@ -1011,16 +1075,26 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
                 out={}
                 if isinstance(obj,dict):
                     for k,v in obj.items():
-                        if k in ("corrections","filled","reviewSummary","reviewedAt"): continue
+                        if k in ("corrections","filled","reviewSummary","reviewedAt","schemaVersion","expansion"): continue
                         path=f"{prefix}.{k}" if prefix else k
                         if isinstance(v,dict): out.update(flat_map(v,path))
                         elif isinstance(v,str): out[path]=v[:2500]
                 return out
             fields=flat_map(mindmap)
+            # Only analyze the currently selected secondary branch (Example OR Explain 2), not hidden alternatives.
+            for body_name in ("body1","body2"):
+                body_value=mindmap.get(body_name,{}) if isinstance(mindmap,dict) else {}
+                if not isinstance(body_value,dict): continue
+                for idea_name in ("idea1","idea2"):
+                    idea_value=body_value.get(idea_name,{})
+                    if isinstance(idea_value,dict):
+                        prefix=f"{body_name}.{idea_name}."
+                        if idea_value.get("expansion","example")=="example": fields.pop(prefix+"explain2",None)
+                        else: fields.pop(prefix+"example",None)
             if len(fields)>30:
                 return self.send_json(400, {"error": "Mindmap có quá nhiều trường."})
             criterion = "Task Achievement (TA)" if task == "Task 1" else "Task Response (TR)"
-            system = f"""Bạn là huấn luyện viên IELTS Writing chuyên đánh giá dàn ý sơ bộ, không phải bài luận hoàn chỉnh. Trả lời tiếng Việt, không chấm band cho mindmap và KHÔNG chấm gắt. Đánh giá ý tưởng theo khía cạnh liên quan đề, độ bao phủ yêu cầu, mức phát triển/sâu sắc và tính hỗ trợ cho lập trường; dùng nguyên tắc {criterion} trong IELTS Writing band descriptors. Với Task 1, xem xét khả năng chọn/nhóm đặc điểm chính, overview và tính chính xác của dữ liệu. Với Task 2, xem xét trả lời đủ các phần của câu hỏi, lập trường rõ, ý chính liên quan và được phát triển hợp lý. Vì đây là bản nháp, hãy chấp nhận viết tắt, cụm từ, tiếng Việt xen tiếng Anh, mũi tên, bullet và câu chưa hoàn chỉnh; KHÔNG trừ điểm vì ngữ pháp, chính tả hoặc thiếu câu hoàn chỉnh trừ khi làm ý nghĩa không rõ. Không tự bịa số liệu Task 1. Không biến nhận xét thành bài giảng dài. Nếu một ô có ý tưởng đúng, giữ nguyên. Chỉ đề xuất sửa nhẹ khi ý sai, mơ hồ, trùng lặp, nông hoặc chưa trả lời đề. Nếu ô trống, hãy tự gợi ý một ý ngắn gọn phù hợp; không yêu cầu người dùng điền lại đề. Đề bài là nguồn sự thật. Trả JSON duy nhất theo schema: {{"summary":"Tối đa 2 câu tóm tắt ưu tiên liên quan đề/độ sâu/độ bao phủ.","fill_blanks":{{"body1.idea1":"gợi ý cho trường trống",...}},"corrections":{{"body1.idea2":{{"corrected":"bản sửa ngắn","reason":"giải thích ngắn gọn bằng tiếng Việt"}}}}}}. Chỉ đưa vào fill_blanks những trường được cung cấp nhưng đang trống. Chỉ đưa vào corrections trường đã có nội dung và thực sự cần chỉnh; corrected phải giữ ý gốc tối đa có thể. Không trả trường không có trong dữ liệu."""
+            system = f"""Bạn là huấn luyện viên IELTS Writing chuyên đánh giá dàn ý sơ bộ, không phải bài luận hoàn chỉnh. Trả lời tiếng Việt, không chấm band cho mindmap và KHÔNG chấm gắt. Đánh giá ý tưởng theo khía cạnh liên quan đề, độ bao phủ yêu cầu, mức phát triển/sâu sắc và tính hỗ trợ cho lập trường; dùng nguyên tắc {criterion} trong IELTS Writing band descriptors. Với Task 1, xem xét khả năng chọn/nhóm đặc điểm chính, overview và tính chính xác của dữ liệu. Với Task 2, xem xét trả lời đủ các phần của câu hỏi, lập trường rõ, ý chính liên quan và được phát triển hợp lý. Vì đây là bản nháp, hãy chấp nhận viết tắt, cụm từ, tiếng Việt xen tiếng Anh, mũi tên, bullet và câu chưa hoàn chỉnh; KHÔNG trừ điểm vì ngữ pháp, chính tả hoặc thiếu câu hoàn chỉnh trừ khi làm ý nghĩa không rõ. Không tự bịa số liệu Task 1. Không biến nhận xét thành bài giảng dài. Nếu một ô có ý tưởng đúng, giữ nguyên. Chỉ đề xuất sửa nhẹ khi ý sai, mơ hồ, trùng lặp, nông hoặc chưa trả lời đề. Nếu ô trống, hãy tự gợi ý một ý ngắn gọn phù hợp; không yêu cầu người dùng điền lại đề. Đề bài là nguồn sự thật. Trả JSON duy nhất theo schema: {{"summary":"Tối đa 2 câu tóm tắt ưu tiên liên quan đề/độ sâu/độ bao phủ.","fill_blanks":{{"body1.idea1.content":"gợi ý ý chính","body1.idea1.explain1":"giải thích 1","body1.idea1.example":"ví dụ hoặc explain2 theo trường đang chọn",...}},"corrections":{{"body1.idea2.content":{{"corrected":"bản sửa ngắn","reason":"giải thích ngắn gọn bằng tiếng Việt"}}}}}}. Chỉ đưa vào fill_blanks những trường được cung cấp nhưng đang trống. Chỉ đưa vào corrections trường đã có nội dung và thực sự cần chỉnh; corrected phải giữ ý gốc tối đa có thể. Không trả trường không có trong dữ liệu."""
             prompt = "Rà soát mindmap nháp này. Dùng TA/TR band descriptors chỉ cho relevance, coverage and development; tuyệt đối không chấm ngữ pháp của bản nháp.\n" + json.dumps({"task":task,"question":question,"question_type":str(data.get("type",""))[:100],"topic":str(data.get("topic",""))[:100],"mindmap":fields},ensure_ascii=False)
             try:
                 review, model = ai_generate(system, prompt, max_output_tokens=5000)
@@ -1233,11 +1307,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v23 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v27 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v22.")
+        print("\nStopping WriteWiser v27.")
     finally:
         server.server_close()
 

@@ -177,3 +177,12 @@ Nếu Gemini trả 503/429, timeout hoặc JSON lỗi, backend thử nhà cung c
 ## Favicon / logo tab trình duyệt
 
 Các trang `index.html` và `calibration.html` sử dụng biểu tượng WriteWiser từ `favicon.ico` và `assets/favicon-*.png`. Khi đổi logo, cần cập nhật các tệp favicon này; tham số `?v=26` giúp trình duyệt làm mới cache.
+
+
+## v27 — Paragraph structure, Brainstorm schema, sentence-level review
+
+- Advanced import preserves paragraph boundaries with blank lines and includes an AI paragraph-grouping tool. Vietnamese translations inherit the English paragraph grouping; sentence-level ordering remains validated.
+- Admin global lesson editor and personal lesson editor preserve and let the editor change paragraph boundaries. The grouping tool returns sentence indices rather than rewritten text so it cannot silently rewrite or omit sentence content.
+- Brainstorm now structures each idea as Idea + required Explain 1 + a selectable Example or Explain 2. Existing older drafts are migrated into the newer schema. A partly filled idea is validated before requesting AI review.
+- Reverse translation has an AI check for the current sentence, independent from submitting the full exercise. It does not produce an official IELTS band.
+- Added API endpoints: `/api/segment-paragraphs` and `/api/translation-sentence-feedback`. The latter requires a signed-in user.
