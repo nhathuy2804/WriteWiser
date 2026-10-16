@@ -1,4 +1,4 @@
-# WriteWiser v30 — metadata chia sẻ Facebook/Open Graph và lưu bản nháp theo tài khoản
+# WriteWiser v32 — Dashboard, quản lý lịch sử và cổng mật khẩu có thể cuộn
 
 Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để triển khai nhiều người dùng trên hosting từ xa.
 
@@ -234,3 +234,14 @@ OpenAI-compatible responses now parse fenced JSON and a balanced JSON object/arr
 
 ### Groq User-Agent
 The backend sets a descriptive `User-Agent` for OpenAI-compatible providers. `WRITEWISER_USER_AGENT` can override it. Cloudflare Error 1010 is an upstream browser-signature block; a different User-Agent may help in some cases but cannot guarantee resolution. If it persists, check the complete error response and contact provider support.
+
+
+## v32 — Dashboard, history management, and scrollable access gate
+
+- The shared-password overlay can scroll vertically on short and mobile viewports so the Facebook contact link remains reachable.
+- Added account-scoped history deletion: individual entries and all history can be deleted. When logged in, the updated history is saved to that account via `/api/state`; the action does not delete drafts or the mistake notebook. When logged out, it affects the current browser only.
+- Added a signed-in Dashboard with an overall-band distribution chart by task, average criterion breakdowns (Task Achievement for Task 1, Task Response for Task 2, plus CC/LR/GRA), a four-axis radar/spider chart, and separate Task 1/Task 2 leaderboards.
+- Score charts include only free-writing (`mode=independent`) submissions with saved AI feedback and a valid overall band. Reverse-translation attempts are not treated as IELTS band scores.
+- The leaderboard shows username, average overall band by task and count of scored submissions only. It does not expose essay text or AI feedback; accounts with the `admin` role are excluded. All signed-in users can see this aggregate leaderboard.
+- Dashboard aggregation reads existing `user_state` JSON; no SQL schema migration is needed. Existing Render environment variables and database should be preserved.
+- To deploy, update the current GitHub repository with the files from this release, commit and push, then wait for Render. Do not recreate Supabase.

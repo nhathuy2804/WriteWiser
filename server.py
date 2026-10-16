@@ -765,6 +765,66 @@ def ai_generate(system_instruction, prompt, max_output_tokens=6500, image_data=N
         raise RuntimeError("Chưa cấu hình AI provider đang hoạt động. Hãy đặt ít nhất một API key (GEMINI_API_KEY, GROQ_API_KEY, TOGETHER_API_KEY, OPENROUTER_API_KEY hoặc API key được khai báo trong CUSTOM_AI_PROVIDERS_JSON)." + custom_note)
     raise RuntimeError("Tất cả AI provider khả dụng đều thất bại; đã thử dự phòng theo thứ tự cấu hình. " + " | ".join(failures))
 
+def _number_band(value):
+    """Return a finite IELTS band in [0, 9], accepting values like 'Band 7.5'."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        if isinstance(value, (int, float)):
+            number = float(value)
+        else:
+            match = re.search(r"(?<!\d)([0-9](?:\.5)?)(?!\d)", str(value))
+            if not match: return None
+            number = float(match.group(1))
+        return number if 0 <= number <= 9 else None
+    except (TypeError, ValueError):
+        return None
+
+def _criterion_key(name):
+    normalized = re.sub(r"[^a-z]", "", str(name or "").lower())
+    if normalized in ("ta", "taskachievement", "taskachievementacademic", "achievement"): return "TA/TR"
+    if normalized in ("tr", "taskresponse", "responsetotask"): return "TA/TR"
+    if normalized in ("cc", "coherenceandcohesion", "coherencecohesion"): return "CC"
+    if normalized in ("lr", "lexicalresource", "lexical"): return "LR"
+    if normalized in ("gra", "grammaticalrangeandaccuracy", "grammar", "grammaticalrangeaccuracy"): return "GRA"
+    return None
+
+def _summarize_writing_history(history):
+    """Only scored free-writing submissions contribute to IELTS band analytics."""
+    by_task = {"Task 1": [], "Task 2": []}
+    for record in history if isinstance(history, list) else []:
+        if not isinstance(record, dict) or record.get("mode") != "independent":
+            continue
+        task = record.get("task")
+        feedback = record.get("feedback")
+        if task not in by_task or not isinstance(feedback, dict):
+            continue
+        overall = _number_band(feedback.get("overall_band"))
+        if overall is None:
+            continue
+        criteria = {"TA/TR": None, "CC": None, "LR": None, "GRA": None}
+        raw_criteria = feedback.get("criteria", [])
+        if isinstance(raw_criteria, list):
+            for item in raw_criteria:
+                if not isinstance(item, dict): continue
+                key = _criterion_key(item.get("name") or item.get("criterion") or item.get("key"))
+                value = _number_band(item.get("band", item.get("score")))
+                if key and value is not None:
+                    criteria[key] = value
+        by_task[task].append({"overall": overall, "criteria": criteria, "date": record.get("date"), "id": record.get("id")})
+    def avg(vals):
+        vals = [v for v in vals if v is not None]
+        return round(sum(vals) / len(vals), 2) if vals else None
+    summary = {}
+    for task, records in by_task.items():
+        summary[task] = {
+            "count": len(records),
+            "averageOverall": avg([r["overall"] for r in records]),
+            "criteria": {key: avg([r["criteria"].get(key) for r in records]) for key in ("TA/TR", "CC", "LR", "GRA")},
+            "distribution": {str(band / 2): sum(1 for r in records if round(r["overall"] * 2) == band) for band in range(0, 19)}
+        }
+    return summary
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(BASE), **kwargs)
@@ -915,7 +975,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "31-provider-json-stability", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "32-dashboard-history-scroll", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -967,6 +1027,34 @@ class Handler(SimpleHTTPRequestHandler):
                 except json.JSONDecodeError:
                     state = None
                 return self.send_json(200, {"state": state, "updatedAt": row["updated_at"]})
+            if path == "/api/dashboard":
+                user = self.session_user()
+                if not user:
+                    return self.send_json(401, {"error": "Đăng nhập để xem Dashboard và bảng xếp hạng."})
+                with db() as c:
+                    mine = c.execute("SELECT state_json FROM user_state WHERE user_id=?", (user["id"],)).fetchone()
+                    all_rows = c.execute("SELECT users.username, users.role, user_state.state_json FROM users LEFT JOIN user_state ON user_state.user_id=users.id WHERE users.role='user' ORDER BY users.username").fetchall()
+                try:
+                    own_state = json.loads(mine["state_json"]) if mine and mine["state_json"] else {}
+                except Exception:
+                    own_state = {}
+                own_history = own_state.get("history", []) if isinstance(own_state, dict) else []
+                leaderboard = {"Task 1": [], "Task 2": []}
+                for row in all_rows:
+                    try:
+                        state = json.loads(row["state_json"]) if row["state_json"] else {}
+                    except Exception:
+                        state = {}
+                    user_history = state.get("history", []) if isinstance(state, dict) else []
+                    stats = _summarize_writing_history(user_history)
+                    for task in ("Task 1", "Task 2"):
+                        task_stats = stats[task]
+                        if task_stats["count"]:
+                            leaderboard[task].append({"username": row["username"], "averageOverall": task_stats["averageOverall"], "submissions": task_stats["count"]})
+                for task in ("Task 1", "Task 2"):
+                    leaderboard[task].sort(key=lambda item: (-(item["averageOverall"] or 0), -item["submissions"], item["username"].lower()))
+                    for rank, item in enumerate(leaderboard[task], 1): item["rank"] = rank
+                return self.send_json(200, {"myHistory": own_history if isinstance(own_history, list) else [], "leaderboard": leaderboard, "updatedAt": int(time.time()), "privacy": "Leaderboard exposes usernames, average overall band by task and number of scored submissions only; no essay text or feedback is shared."})
             return self.send_json(404, {"error": "Không tìm thấy API."})
         # The main document must load so its password overlay can be shown. Other
         # HTML pages (including calibration.html) cannot be opened directly before
@@ -1563,7 +1651,7 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v30 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v32 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
