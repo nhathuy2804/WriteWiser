@@ -27,6 +27,14 @@ services:
         sync: false
       - key: OPENROUTER_MODEL
         value: openai/gpt-4o-mini
+      - key: OPENROUTER_RESPONSE_HEALING
+        value: "1"
+      - key: OPENROUTER_JSON_RETRY
+        value: "1"
+      - key: WRITEWISER_USER_AGENT
+        value: "WriteWiser/31 (IELTS Writing learning app; contact https://www.facebook.com/people/WriteWiser/61595026757886/)"
+      - key: CUSTOM_AI_PROVIDERS_JSON
+        sync: false
       - key: AI_PROVIDER_ORDER
         value: gemini,groq,together,openrouter
       - key: DATABASE_URL

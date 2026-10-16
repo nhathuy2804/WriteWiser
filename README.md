@@ -166,6 +166,7 @@ Nếu Gemini trả 503/429, timeout hoặc JSON lỗi, backend thử nhà cung c
 ### Database tables bổ sung
 `admin_calibrations`, `feedback_corrections`, `reference_overrides`. Tất cả tồn tại trong cùng SQLite cục bộ hoặc PostgreSQL khi `DATABASE_URL` được cấu hình.
 
+
 ## v24 — đồng bộ thư viện đề dùng chung
 
 - Thư viện không hiển thị danh sách đề mẫu trong bundle trước khi cả `/api/global-lessons` và `/api/library-overrides` tải thành công.
@@ -216,3 +217,20 @@ Các trang `index.html` và `calibration.html` sử dụng biểu tượng Write
 - Khi tài khoản đăng nhập lại hoặc đăng nhập trên thiết bị khác, WriteWiser tự mở lại bản nháp đã lưu gần nhất nếu đề đó vẫn tồn tại và có quyền truy cập. Nút **Tiếp tục bản nháp đã lưu** vẫn dùng được để mở lại sau này.
 - Dữ liệu thuộc riêng tài khoản. Chỉ những thay đổi đã bấm Lưu bản nháp mới được đảm bảo đồng bộ như một phiên làm việc hoàn chỉnh; nội dung vẫn có autosync hiện có, nhưng cần bấm lưu để cập nhật vị trí câu/chế độ/đồng hồ.
 - Biến `studyDraft` được lưu trong JSON `user_state`, không cần thêm bảng hoặc chạy migration.
+
+## v31 — Provider configuration and JSON resilience
+
+### Add providers without editing Python (OpenAI-compatible APIs only)
+Set `CUSTOM_AI_PROVIDERS_JSON` to a JSON array in the Render Environment settings. Each object needs `name`, `label`, `api_key_env`, `model_env`, `endpoint` (HTTPS URL ending in `/chat/completions`) and `default_model`. Keep the actual key in its own environment variable, never in this JSON or GitHub. Example value:
+
+```json
+[{"name":"deepseek","label":"DeepSeek","api_key_env":"DEEPSEEK_API_KEY","model_env":"DEEPSEEK_MODEL","endpoint":"https://api.deepseek.com/chat/completions","default_model":"deepseek-chat"}]
+```
+
+Then add `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, and include the provider name in `AI_PROVIDER_ORDER`, for example `gemini,groq,together,openrouter,deepseek`. You may register a second key for a compatible endpoint as another name (for example `openrouter_alt` with `OPENROUTER_API_KEY_2` and `OPENROUTER_MODEL_2`) if it is a genuinely separate key/account; that does not guarantee extra quota if the provider shares limits at account or IP level. Custom providers using OpenRouter's endpoint also get its HTTP-Referer, response-healing and JSON-retry handling. The custom adapter supports OpenAI-compatible Chat Completions endpoints only; providers with a different API protocol need a code adapter.
+
+### JSON resilience
+OpenAI-compatible responses now parse fenced JSON and a balanced JSON object/array embedded in harmless prose. OpenRouter requests use `response_format=json_object`, request the response-healing plugin by default, and require an upstream route that honors requested parameters. If malformed JSON still occurs, the server performs one retry with a strict JSON-only instruction (enabled by `OPENROUTER_JSON_RETRY=1`); this may add latency and token usage on failed calls. Set `OPENROUTER_RESPONSE_HEALING=0` or `OPENROUTER_JSON_RETRY=0` to disable either behavior. Errors distinguish empty, invalid, refused, and truncated responses where possible.
+
+### Groq User-Agent
+The backend sets a descriptive `User-Agent` for OpenAI-compatible providers. `WRITEWISER_USER_AGENT` can override it. Cloudflare Error 1010 is an upstream browser-signature block; a different User-Agent may help in some cases but cannot guarantee resolution. If it persists, check the complete error response and contact provider support.
