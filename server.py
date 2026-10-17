@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """WriteWiser backend: local SQLite for development, PostgreSQL via DATABASE_URL for cloud hosting."""
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from http import cookies
 import hashlib, hmac, json, os, secrets, sqlite3, time, re, urllib.request, urllib.error, base64, io, zipfile, csv, xml.etree.ElementTree as ET, html
 from pathlib import Path
 from html.parser import HTMLParser
 import threading
+from datetime import datetime
 
 BASE = Path(__file__).resolve().parent
 DB_PATH = BASE / "draftwise.sqlite3"
@@ -151,6 +152,89 @@ def is_integrity_error(exc):
     except ImportError:
         return False
 
+def _history_created_epoch(record):
+    """Keep the original attempt date stable even when its AI feedback is updated."""
+    value = record.get("date") if isinstance(record, dict) else None
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            return int(parsed.timestamp())
+        except (ValueError, OverflowError, OSError):
+            pass
+    record_id = record.get("id") if isinstance(record, dict) else None
+    try:
+        numeric_id = int(record_id)
+        if numeric_id > 1_000_000_000_000:  # JavaScript Date.now() in milliseconds
+            return numeric_id // 1000
+        if numeric_id > 1_000_000_000:
+            return numeric_id
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return int(time.time())
+
+
+def upsert_user_history(conn, user_id, records):
+    """Append/update records without letting a stale state snapshot delete older attempts."""
+    if not isinstance(records, list):
+        return 0
+    now = int(time.time())
+    saved = 0
+    for record in records[:5000]:
+        if not isinstance(record, dict) or record.get("id") is None:
+            continue
+        record_id = str(record.get("id", "")).strip()[:120]
+        if not record_id:
+            continue
+        try:
+            row = conn.execute(
+                "SELECT record_json, created_at FROM user_history WHERE user_id=? AND record_id=?",
+                (user_id, record_id),
+            ).fetchone()
+            merged = {}
+            created_at = _history_created_epoch(record)
+            if row:
+                try:
+                    previous = json.loads(row["record_json"])
+                    if isinstance(previous, dict):
+                        merged.update(previous)
+                    created_at = int(row["created_at"])
+                except Exception:
+                    pass
+            # Missing fields in an early/pending snapshot must not erase feedback saved later.
+            merged.update(record)
+            merged["id"] = record.get("id")
+            encoded = json.dumps(merged, ensure_ascii=False)
+            if len(encoded.encode("utf-8")) > 600_000:
+                continue
+            conn.execute(
+                """INSERT INTO user_history(user_id, record_id, record_json, created_at, updated_at)
+                   VALUES(?,?,?,?,?)
+                   ON CONFLICT(user_id, record_id) DO UPDATE SET
+                     record_json=excluded.record_json, updated_at=excluded.updated_at""",
+                (user_id, record_id, encoded, created_at, now),
+            )
+            saved += 1
+        except Exception as exc:
+            print(f"[history] skip record {record_id[:32]}: {exc}")
+    return saved
+
+
+def read_user_history(conn, user_id):
+    rows = conn.execute(
+        "SELECT record_json FROM user_history WHERE user_id=? ORDER BY created_at DESC, updated_at DESC",
+        (user_id,),
+    ).fetchall()
+    records = []
+    for row in rows:
+        try:
+            record = json.loads(row["record_json"])
+            if isinstance(record, dict):
+                records.append(record)
+        except Exception:
+            continue
+    return records
+
+
 def init_db():
     if DATABASE_URL:
         with db() as c:
@@ -201,6 +285,15 @@ def init_db():
             columns = {row["name"] for row in c.execute("PRAGMA table_info(users)").fetchall()}
             if "role" not in columns:
                 c.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+        c.execute("""CREATE TABLE IF NOT EXISTS user_history (
+            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            record_id TEXT NOT NULL,
+            record_json TEXT NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            PRIMARY KEY (user_id, record_id)
+        )""")
+        c.execute("CREATE INDEX IF NOT EXISTS user_history_recent_idx ON user_history (user_id, created_at DESC)")
         c.execute("""CREATE TABLE IF NOT EXISTS app_settings (
             setting_key TEXT PRIMARY KEY,
             setting_value TEXT NOT NULL,
@@ -341,7 +434,7 @@ class DolLinkParser(HTMLParser):
 
 def fetch_dol_catalog(task):
     """Fetch listing pages for article metadata only, on explicit user request."""
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse, unquote
     sources = []
     if task in ("all", "Task 1"):
         sources.append(("Task 1", "https://tuhoc.dolenglish.vn/category/tong-hop-bai-mau-ielts-writing-task-1-sample"))
@@ -1282,7 +1375,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "34-seo-routes", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "37-durable-history", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -1337,6 +1430,25 @@ class Handler(SimpleHTTPRequestHandler):
             if path == "/api/me":
                 user = self.session_user()
                 return self.send_json(200, {"authenticated": bool(user), "user": user})
+            if path == "/api/history":
+                user = self.session_user()
+                if not user:
+                    return self.send_json(401, {"error": "Bạn cần đăng nhập để tải lịch sử đã đồng bộ."})
+                with db() as c:
+                    # One-time/backward-compatible migration from the old user_state JSON blob.
+                    legacy = c.execute("SELECT state_json FROM user_state WHERE user_id=?", (user["id"],)).fetchone()
+                    if legacy and legacy["state_json"]:
+                        try:
+                            old_state = json.loads(legacy["state_json"])
+                            if isinstance(old_state, dict) and "history" in old_state:
+                                upsert_user_history(c, user["id"], old_state.pop("history", []))
+                                # Remove the migrated copy so an intentional history deletion is not undone later.
+                                c.execute("UPDATE user_state SET state_json=?, updated_at=? WHERE user_id=?",
+                                          (json.dumps(old_state, ensure_ascii=False), int(time.time()), user["id"]))
+                        except Exception:
+                            pass
+                    records = read_user_history(c, user["id"])
+                return self.send_json(200, {"records": records, "count": len(records), "storage": "account-database"})
             if path == "/api/state":
                 user = self.session_user()
                 if not user:
@@ -1355,25 +1467,42 @@ class Handler(SimpleHTTPRequestHandler):
                 if not user:
                     return self.send_json(401, {"error": "Đăng nhập để xem Dashboard và bảng xếp hạng."})
                 with db() as c:
-                    mine = c.execute("SELECT state_json FROM user_state WHERE user_id=?", (user["id"],)).fetchone()
-                    all_rows = c.execute("SELECT users.username, users.role, user_state.state_json FROM users LEFT JOIN user_state ON user_state.user_id=users.id WHERE users.role='user' ORDER BY users.username").fetchall()
-                try:
-                    own_state = json.loads(mine["state_json"]) if mine and mine["state_json"] else {}
-                except Exception:
-                    own_state = {}
-                own_history = own_state.get("history", []) if isinstance(own_state, dict) else []
-                leaderboard = {"Task 1": [], "Task 2": []}
+                    # Migrate legacy user_state history for all accounts before aggregating scores.
+                    legacy_rows = c.execute("SELECT user_id, state_json FROM user_state WHERE state_json IS NOT NULL").fetchall()
+                    for legacy_row in legacy_rows:
+                        try:
+                            old_state = json.loads(legacy_row["state_json"])
+                            if isinstance(old_state, dict) and "history" in old_state:
+                                upsert_user_history(c, legacy_row["user_id"], old_state.pop("history", []))
+                                c.execute("UPDATE user_state SET state_json=?, updated_at=? WHERE user_id=?",
+                                          (json.dumps(old_state, ensure_ascii=False), int(time.time()), legacy_row["user_id"]))
+                        except Exception:
+                            pass
+                    own_history = read_user_history(c, user["id"])
+                    all_rows = c.execute(
+                        """SELECT users.id AS user_id, users.username, users.role, user_history.record_json
+                           FROM users LEFT JOIN user_history ON user_history.user_id=users.id
+                           WHERE users.role='user' ORDER BY users.username"""
+                    ).fetchall()
+                histories_by_user = {}
+                usernames_by_id = {}
                 for row in all_rows:
-                    try:
-                        state = json.loads(row["state_json"]) if row["state_json"] else {}
-                    except Exception:
-                        state = {}
-                    user_history = state.get("history", []) if isinstance(state, dict) else []
+                    uid = row["user_id"]
+                    usernames_by_id[uid] = row["username"]
+                    histories_by_user.setdefault(uid, [])
+                    if row["record_json"]:
+                        try:
+                            record = json.loads(row["record_json"])
+                            if isinstance(record, dict): histories_by_user[uid].append(record)
+                        except Exception:
+                            pass
+                leaderboard = {"Task 1": [], "Task 2": []}
+                for uid, user_history in histories_by_user.items():
                     stats = _summarize_writing_history(user_history)
                     for task in ("Task 1", "Task 2"):
                         task_stats = stats[task]
                         if task_stats["count"]:
-                            leaderboard[task].append({"username": row["username"], "averageOverall": task_stats["averageOverall"], "submissions": task_stats["count"]})
+                            leaderboard[task].append({"username": usernames_by_id[uid], "averageOverall": task_stats["averageOverall"], "submissions": task_stats["count"]})
                 for task in ("Task 1", "Task 2"):
                     leaderboard[task].sort(key=lambda item: (-(item["averageOverall"] or 0), -item["submissions"], item["username"].lower()))
                     for rank, item in enumerate(leaderboard[task], 1): item["rank"] = rank
@@ -1463,6 +1592,21 @@ class Handler(SimpleHTTPRequestHandler):
             data = self.read_json()
         except ValueError as e:
             return self.send_json(400, {"error": str(e)})
+        if path == "/api/history":
+            user = self.session_user()
+            if not user:
+                return self.send_json(401, {"error": "Bạn cần đăng nhập để đồng bộ lịch sử."})
+            records = data.get("records")
+            if not isinstance(records, list):
+                single = data.get("record")
+                records = [single] if isinstance(single, dict) else None
+            if records is None:
+                return self.send_json(400, {"error": "Thiếu danh sách bản ghi lịch sử hợp lệ."})
+            if len(records) > 5000:
+                return self.send_json(413, {"error": "Số bản ghi gửi lên quá lớn."})
+            with db() as c:
+                saved = upsert_user_history(c, user["id"], records)
+            return self.send_json(200, {"ok": True, "saved": saved})
         if path == "/api/gate/unlock":
             password = data.get("password", "")
             if not verify_stored_password("gate_password", password):
@@ -1863,6 +2007,20 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
     def do_DELETE(self):
         path = urlparse(self.path).path
         if not self.gate_user(): return self.send_json(423, {"error": "Nhập mật khẩu truy cập chung để mở WriteWiser."})
+        if path == "/api/history":
+            user = self.session_user()
+            if not user: return self.send_json(401, {"error": "Bạn cần đăng nhập."})
+            with db() as c:
+                c.execute("DELETE FROM user_history WHERE user_id=?", (user["id"],))
+            return self.send_json(200, {"ok": True, "deleted": "all"})
+        history_match = re.fullmatch(r"/api/history/([^/]+)", path)
+        if history_match:
+            user = self.session_user()
+            if not user: return self.send_json(401, {"error": "Bạn cần đăng nhập."})
+            record_id = unquote(history_match.group(1))[:120]
+            with db() as c:
+                c.execute("DELETE FROM user_history WHERE user_id=? AND record_id=?", (user["id"], record_id))
+            return self.send_json(200, {"ok": True, "deleted": record_id})
         override_match = re.fullmatch(r"/api/library-overrides/([^/]+)", path)
         if override_match:
             admin=self.require_admin()
@@ -1916,8 +2074,12 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
         state = data.get("state")
         if not isinstance(state, dict):
             return self.send_json(400, {"error": "Thiếu dữ liệu học tập hợp lệ."})
-        # Keep storage bounded and accept only expected top-level fields.
-        state = {k: state.get(k) for k in ("profile", "answers", "lessonAnswers", "independentDrafts", "brainstormDrafts", "currentLessonId", "history", "lessonProgress", "mistakes", "customLessons", "studyDraft") if k in state}
+        # Compatibility for old tabs: migrate any embedded history into its own append-only table.
+        if isinstance(state.get("history"), list):
+            with db() as c:
+                upsert_user_history(c, user["id"], state.get("history", []))
+        # History is stored in user_history, not in the mutable whole-account JSON snapshot.
+        state = {k: state.get(k) for k in ("profile", "answers", "lessonAnswers", "independentDrafts", "brainstormDrafts", "currentLessonId", "lessonProgress", "mistakes", "customLessons", "studyDraft") if k in state}
         progress = state.get("lessonProgress")
         if isinstance(progress, dict):
             clean_progress = {}
@@ -1978,11 +2140,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v34 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v37 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v34.")
+        print("\nStopping WriteWiser v37.")
     finally:
         server.server_close()
 

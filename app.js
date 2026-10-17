@@ -162,6 +162,7 @@ function wwSyncBrowserRoute(view,{replace=false}={}){const target=wwTargetPath(v
 function wwApplyRouteFromLocation(){const path=wwNormalizePath(window.location.pathname);const route=WW_ROUTE_CONFIG[path]||WW_ROUTE_CONFIG["/"];wwApplyRouteMetadata(path);switchView(route.view,{syncRoute:false});if(route.view==="practice"){switchPracticeMode(route.mode||"reverse",{syncRoute:false});if(route.brainstorm){const panel=$("brainstormPanel");if(panel){panel.hidden=false;renderBrainstorm();}}}}
 const STORAGE = {profile:"draftwise.profile.v1", answers:"draftwise.answers.v1", history:"draftwise.history.v1", mistakes:"draftwise.mistakes.v1", started:"draftwise.started.v1"};
 let active = 0, hintShown = false, timerStart = Date.now(), toastTimer, syncTimer = null;
+let historySyncTimer = null, historySyncQueue = Promise.resolve();
 let practiceMode = "reverse", independentStart = Date.now();
 let historyReviewMode = false; // Read-only view of a saved attempt; never write it back as a draft.
 let independentDrafts = read("draftwise.independentDrafts.v1", {});
@@ -177,8 +178,44 @@ let history = read(STORAGE.history, []);
 let mistakes = read(STORAGE.mistakes, []);
 let lessonProgress = read("draftwise.lessonProgress.v1", {});
 function read(key, fallback){try{const v=localStorage.getItem(key);return v?JSON.parse(v):fallback}catch{return fallback}}
-function write(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{showToast("Không thể lưu dữ liệu. Hãy kiểm tra dung lượng trình duyệt.")}scheduleSync()}
-function stateSnapshot(){return {profile,answers,lessonAnswers,independentDrafts,brainstormDrafts,currentLessonId:currentLesson.id,history:history.slice(0,100),lessonProgress,mistakes,customLessons,studyDraft:savedStudyDraft}}
+function write(key,value){
+  try{const localValue=key===STORAGE.history&&Array.isArray(value)?value.slice(0,100):value;localStorage.setItem(key,JSON.stringify(localValue))}
+  catch{showToast("Không thể lưu dữ liệu cục bộ. Hãy kiểm tra dung lượng trình duyệt.")}
+  if(key===STORAGE.history)scheduleHistorySync();else scheduleSync();
+}
+function scheduleHistorySync(){
+  if(!currentUser||syncInProgress)return;
+  clearTimeout(historySyncTimer);
+  historySyncTimer=setTimeout(()=>{persistHistoryRecordsNow(history.slice(0,100)).catch(err=>showToast("Lịch sử chưa đồng bộ được: "+err.message));},500);
+}
+function persistHistoryRecordsNow(records=history.slice(0,100)){
+  if(!currentUser||!Array.isArray(records)||!records.length)return Promise.resolve();
+  clearTimeout(historySyncTimer);historySyncTimer=null;
+  const snapshot=records.filter(r=>r&&r.id!==undefined&&r.id!==null);
+  if(!snapshot.length)return Promise.resolve();
+  const batches=[];let batch=[],bytes=32;
+  for(const record of snapshot){
+    const recordBytes=new Blob([JSON.stringify(record)]).size+16;
+    if(batch.length&&bytes+recordBytes>1_400_000){batches.push(batch);batch=[];bytes=32;}
+    batch.push(record);bytes+=recordBytes;
+  }
+  if(batch.length)batches.push(batch);
+  historySyncQueue=historySyncQueue.catch(()=>{}).then(async()=>{
+    for(const recordsBatch of batches)await api("/api/history",{method:"POST",body:JSON.stringify({records:recordsBatch})});
+  });
+  return historySyncQueue;
+}
+async function loadAccountHistory(importLocalRecords=[]){
+  if(!currentUser)return;
+  if(Array.isArray(importLocalRecords)&&importLocalRecords.length){
+    await persistHistoryRecordsNow(importLocalRecords.slice(0,100));
+  }
+  const result=await api("/api/history");
+  history=Array.isArray(result.records)?result.records:[];
+  try{localStorage.setItem(STORAGE.history,JSON.stringify(history.slice(0,100)))}catch{}
+  renderHistory();renderProgress();
+}
+function stateSnapshot(){return {profile,answers,lessonAnswers,independentDrafts,brainstormDrafts,currentLessonId:currentLesson.id,lessonProgress,mistakes,customLessons,studyDraft:savedStudyDraft}}
 function resetAccountState(){
   clearTimeout(syncTimer);
   profile={name:"Người học"}; history=[]; lessonProgress={}; mistakes=[]; independentDrafts={}; brainstormDrafts={}; savedStudyDraft=null; studyDraftDirty=false; localStorage.setItem("writewiser.brainstormDrafts.v13",JSON.stringify(brainstormDrafts)); lessonAnswers={}; answers=Array(ESSAY.length).fill(""); customLessons=[];
@@ -281,7 +318,7 @@ function applyRemoteState(state){if(!state)return false;syncInProgress=true;try{
   if(Array.isArray(lessonAnswers[currentLesson.id]))answers=lessonAnswers[currentLesson.id].slice(0,ESSAY.length).concat(Array(Math.max(0,ESSAY.length-lessonAnswers[currentLesson.id].length)).fill("")).slice(0,ESSAY.length);
   else if(Array.isArray(state.answers))answers=state.answers.slice(0,ESSAY.length).concat(Array(Math.max(0,ESSAY.length-state.answers.length)).fill("")).slice(0,ESSAY.length);
   lessonAnswers[currentLesson.id]=answers;
-  localStorage.setItem("draftwise.lessonAnswers.v1",JSON.stringify(lessonAnswers));localStorage.setItem(STORAGE.answers,JSON.stringify(answers));localStorage.setItem(STORAGE.profile,JSON.stringify(profile));localStorage.setItem(STORAGE.history,JSON.stringify(history));localStorage.setItem("draftwise.lessonProgress.v1",JSON.stringify(lessonProgress));localStorage.setItem(STORAGE.mistakes,JSON.stringify(mistakes));
+  localStorage.setItem("draftwise.lessonAnswers.v1",JSON.stringify(lessonAnswers));localStorage.setItem(STORAGE.answers,JSON.stringify(answers));localStorage.setItem(STORAGE.profile,JSON.stringify(profile));localStorage.setItem(STORAGE.history,JSON.stringify(history.slice(0,100)));localStorage.setItem("draftwise.lessonProgress.v1",JSON.stringify(lessonProgress));localStorage.setItem(STORAGE.mistakes,JSON.stringify(mistakes));
 }finally{syncInProgress=false}return true}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function wordCount(s){return (s.trim().match(/\b[\w’'-]+\b/g)||[]).length}
@@ -486,8 +523,9 @@ async function submitIndependentWork(){
  const text=$("independentEssayInput").value.trim();
  if(text.length<30){showToast("Hãy viết bài dài hơn trước khi nộp.");return}
  const words=wordCount(text), record={id:Date.now(),date:new Date().toISOString(),mode:"independent",lessonId:currentLesson.id,lessonTitle:currentLesson.title,task:currentLesson.task,question:currentLesson.question,lessonVisual:snapshotLessonVisual(currentLesson),essayText:text,answers:[],essay:[],completed:1,total:1,words,seconds:Math.max(0,Math.floor((Date.now()-independentStart)/1000))};
- history.unshift(record);history=history.slice(0,100);write(STORAGE.history,history);updateLessonProgressFromRecord(record);
+ history.unshift(record);if(!currentUser)history=history.slice(0,100);write(STORAGE.history,history);updateLessonProgressFromRecord(record);
  const panel=$("independentResultPanel");panel.hidden=false;panel.innerHTML=`<div class="eyebrow">SUBMISSION SAVED</div><h2>Đang chấm bài Writing…</h2><p>Đã lưu bài ${words} từ. Đang gửi toàn bài đến AI để phân tích theo 4 tiêu chí.</p>`;panel.scrollIntoView({behavior:"smooth",block:"start"});
+ if(currentUser){try{await persistHistoryRecordsNow([record])}catch(err){showToast("Bài đã lưu trên trình duyệt nhưng chưa đồng bộ tài khoản: "+err.message)}}
  const prompt=makeIndependentPrompt(record);
  try{
   const health=await api("/api/health");
@@ -495,10 +533,10 @@ async function submitIndependentWork(){
   const imageData=await getCurrentLessonImageData();
   const result=await api("/api/writing-feedback",{method:"POST",body:JSON.stringify({task:record.task,question:record.question,essay_text:text,image_data:imageData})});
   record.feedback=result.feedback;record.aiModel=result.model||"AI provider";record.imageReceived=!!result.image_received;record.words=result.word_count||words;const recordIndex=history.findIndex(item=>String(item.id)===String(record.id));if(recordIndex>=0)history[recordIndex]=record;updateLessonProgressFromRecord(record);
-  (Array.isArray(record.feedback.priority_errors)?record.feedback.priority_errors:[]).slice(0,5).forEach(item=>mistakes.unshift({title:(item.original||"Lỗi Writing").slice(0,120),note:[item.explanation,item.correction?"Gợi ý sửa: "+item.correction:""].filter(Boolean).join("\n"),date:new Date().toLocaleDateString("vi-VN"),sourceRecordId:record.id}));mistakes=mistakes.slice(0,200);write(STORAGE.mistakes,mistakes);write(STORAGE.history,history);if(currentUser){try{clearTimeout(syncTimer);await persistAccountStateNow()}catch{}}
+  (Array.isArray(record.feedback.priority_errors)?record.feedback.priority_errors:[]).slice(0,5).forEach(item=>mistakes.unshift({title:(item.original||"Lỗi Writing").slice(0,120),note:[item.explanation,item.correction?"Gợi ý sửa: "+item.correction:""].filter(Boolean).join("\n"),date:new Date().toLocaleDateString("vi-VN"),sourceRecordId:record.id}));mistakes=mistakes.slice(0,200);write(STORAGE.mistakes,mistakes);write(STORAGE.history,history);if(currentUser){try{await persistHistoryRecordsNow([record]);clearTimeout(syncTimer);await persistAccountStateNow()}catch(err){showToast("Phản hồi đã hiển thị nhưng chưa đồng bộ hoàn toàn: "+err.message)}}
   panel.innerHTML=`<p class="ai-model-note">Đã phân tích bằng ${escapeHtml(record.aiModel)}. ${record.task==="Task 1"?(record.imageReceived?"Ảnh đề đã được gửi kèm cho model.":"Không gửi được ảnh đề; hãy kiểm tra hình và số liệu thủ công."):""} Bài làm đã được lưu vào lịch sử.</p>${renderIndependentFeedback(record.feedback,record)}<div class="result-actions"><button class="button secondary" id="independentHistoryButton">Xem lịch sử</button><button class="button secondary" id="independentPromptButton">Tạo prompt dự phòng</button></div><div id="independentPromptArea" hidden><label class="input-label" for="independentPromptOutput">Prompt chấm bài</label><textarea id="independentPromptOutput" class="prompt-box" readonly></textarea><button class="button primary" id="independentCopyPromptButton">Sao chép prompt</button></div>`;
   $("independentHistoryButton").addEventListener("click",()=>switchView("history"));
-  $("saveFeedbackCorrectionButton")?.addEventListener("click",async()=>{const btn=$("saveFeedbackCorrectionButton"),status=$("feedbackCorrectionStatus");btn.disabled=true;status.textContent="Đang lưu hiệu chỉnh riêng vào tài khoản…";try{let corrected;try{corrected=JSON.parse($("correctedFeedbackJson").value)}catch{throw new Error("JSON không hợp lệ. Hãy sửa cú pháp trước khi lưu.")}const originalFeedback=record.feedback?JSON.parse(JSON.stringify(record.feedback)):null;const result=await api("/api/feedback-corrections",{method:"POST",body:JSON.stringify({payload:{task:record.task,question:record.question,essay_excerpt:record.essayText.slice(0,1800),original_feedback:originalFeedback,corrected_feedback:corrected,corrected_bands:Object.fromEntries((corrected.criteria||[]).map(c=>[c.name,c.band])),reasoning:$("calibrationReason").value.trim(),recordId:record.id}})});record.feedback=corrected;record.feedbackCorrected=true;record.correctedAt=new Date().toISOString();record.feedbackCorrectionId=result.id;const historyIndex=history.findIndex(item=>String(item.id)===String(record.id));if(historyIndex>=0)history[historyIndex]=record;write(STORAGE.history,history);updateLessonProgressFromRecord(record);clearTimeout(syncTimer);await persistAccountStateNow();renderLibrary();if(!$("dashboardView")?.hidden)renderDashboard();status.textContent="Đã lưu hiệu chỉnh vào database theo tài khoản. Hiệu chỉnh chưa tác động đến model toàn hệ thống; admin có thể xem xét và duyệt.";showToast("Đã lưu hiệu chỉnh chấm bài và cập nhật thẻ trong thư viện.");}catch(e){status.textContent=e.message;}finally{btn.disabled=false;}});
+  $("saveFeedbackCorrectionButton")?.addEventListener("click",async()=>{const btn=$("saveFeedbackCorrectionButton"),status=$("feedbackCorrectionStatus");btn.disabled=true;status.textContent="Đang lưu hiệu chỉnh riêng vào tài khoản…";try{let corrected;try{corrected=JSON.parse($("correctedFeedbackJson").value)}catch{throw new Error("JSON không hợp lệ. Hãy sửa cú pháp trước khi lưu.")}const originalFeedback=record.feedback?JSON.parse(JSON.stringify(record.feedback)):null;const result=await api("/api/feedback-corrections",{method:"POST",body:JSON.stringify({payload:{task:record.task,question:record.question,essay_excerpt:record.essayText.slice(0,1800),original_feedback:originalFeedback,corrected_feedback:corrected,corrected_bands:Object.fromEntries((corrected.criteria||[]).map(c=>[c.name,c.band])),reasoning:$("calibrationReason").value.trim(),recordId:record.id}})});record.feedback=corrected;record.feedbackCorrected=true;record.correctedAt=new Date().toISOString();record.feedbackCorrectionId=result.id;const historyIndex=history.findIndex(item=>String(item.id)===String(record.id));if(historyIndex>=0)history[historyIndex]=record;write(STORAGE.history,history);await persistHistoryRecordsNow([record]);updateLessonProgressFromRecord(record);clearTimeout(syncTimer);await persistAccountStateNow();renderLibrary();if(!$("dashboardView")?.hidden)renderDashboard();status.textContent="Đã lưu hiệu chỉnh vào database theo tài khoản. Hiệu chỉnh chưa tác động đến model toàn hệ thống; admin có thể xem xét và duyệt.";showToast("Đã lưu hiệu chỉnh chấm bài và cập nhật thẻ trong thư viện.");}catch(e){status.textContent=e.message;}finally{btn.disabled=false;}});
   $("independentPromptButton").addEventListener("click",()=>{$("independentPromptArea").hidden=false;$("independentPromptOutput").value=prompt;$("independentCopyPromptButton").onclick=async()=>{try{await navigator.clipboard.writeText(prompt);showToast("Đã sao chép prompt.")}catch{$("independentPromptOutput").select();document.execCommand("copy")}}});
   showToast("Đã chấm bài Writing và lưu kết quả.");
  }catch(err){
@@ -580,7 +618,8 @@ async function submitWork(){
   saveCurrent();
   const done=answers.filter(a=>a.trim()).length;
   const record={id:Date.now(),date:new Date().toISOString(),lessonId:currentLesson.id,lessonTitle:currentLesson.title,task:currentLesson.task,question:currentLesson.question,lessonVisual:snapshotLessonVisual(currentLesson),essay:ESSAY.map(s=>({...s})),answers:[...answers],completed:done,total:ESSAY.length,words:answers.reduce((n,a)=>n+wordCount(a),0),seconds:Math.round((Date.now()-timerStart)/1000)};
-  history.unshift(record);history=history.slice(0,100);write(STORAGE.history,history);updateLessonProgressFromRecord(record);
+  history.unshift(record);if(!currentUser)history=history.slice(0,100);write(STORAGE.history,history);updateLessonProgressFromRecord(record);
+  if(currentUser){try{await persistHistoryRecordsNow([record])}catch(err){showToast("Bài đã lưu trên trình duyệt nhưng chưa đồng bộ tài khoản: "+err.message)}}
   const prompt=makePrompt(record);
   $("resultPanel").hidden=false;
   $("resultPanel").innerHTML=`<div class="eyebrow">SUBMISSION SAVED</div><h2>Đang chuẩn bị phản hồi…</h2><p>Đã lưu bài làm: ${done}/${ESSAY.length} câu, ${record.words} từ. Hệ thống đang kiểm tra xem AI tự động đã được cấu hình chưa.</p><div class="result-stats"><div class="result-stat"><strong>${done}/${ESSAY.length}</strong><span>Câu đã nhập</span></div><div class="result-stat"><strong>${record.words}</strong><span>Tổng số từ</span></div><div class="result-stat"><strong>${Math.floor(record.seconds/60)}m ${record.seconds%60}s</strong><span>Thời gian phiên</span></div></div><p>Vui lòng giữ trang mở trong khi xử lý.</p>`;
@@ -593,7 +632,7 @@ async function submitWork(){
       const recurring=Array.isArray(record.feedback.recurring_errors)?record.feedback.recurring_errors:[];
       recurring.forEach(item=>mistakes.unshift({title:item.title||"Lỗi cần ôn tập",note:[item.explanation,item.example?"Ví dụ: "+item.example:""].filter(Boolean).join("\n"),date:new Date().toLocaleDateString("vi-VN"),sourceRecordId:record.id}));
       mistakes=mistakes.slice(0,200);write(STORAGE.mistakes,mistakes);
-      const recordIndex=history.findIndex(item=>String(item.id)===String(record.id));if(recordIndex>=0)history[recordIndex]=record;write(STORAGE.history,history);if(currentUser){try{clearTimeout(syncTimer);await persistAccountStateNow()}catch{}}
+      const recordIndex=history.findIndex(item=>String(item.id)===String(record.id));if(recordIndex>=0)history[recordIndex]=record;write(STORAGE.history,history);if(currentUser){try{await persistHistoryRecordsNow([record]);clearTimeout(syncTimer);await persistAccountStateNow()}catch(err){showToast("Phản hồi đã hiển thị nhưng chưa đồng bộ hoàn toàn: "+err.message)}}
       $("resultPanel").innerHTML=`<div class="eyebrow">AI REVIEW COMPLETE</div><h2>Đã phân tích bài làm.</h2><p>Phản hồi được tạo tự động từ toàn bộ bài và đã lưu trong lịch sử. Mô hình: ${escapeHtml(record.aiModel)}.</p><div class="result-stats"><div class="result-stat"><strong>${done}/${ESSAY.length}</strong><span>Câu đã nhập</span></div><div class="result-stat"><strong>${record.words}</strong><span>Tổng số từ</span></div><div class="result-stat"><strong>${Math.floor(record.seconds/60)}m ${record.seconds%60}s</strong><span>Thời gian phiên</span></div></div>${renderFeedback(record.feedback)}<div class="result-actions"><button class="button secondary" id="showPromptButton">Tạo prompt dự phòng</button><button class="button secondary" id="viewHistoryButton">Xem lịch sử</button></div><div id="manualPromptArea" hidden><label class="input-label" for="promptOutput">Prompt phân tích thủ công</label><textarea id="promptOutput" class="prompt-box" readonly></textarea><div class="result-actions"><button class="button primary" id="copyPromptButton">Sao chép prompt</button><button class="button secondary" id="openChatGPTButton">Mở ChatGPT ↗</button></div></div>`;
       $("showPromptButton").addEventListener("click",()=>{$("manualPromptArea").hidden=false;$("promptOutput").value=prompt;attachResultActions(prompt)});
       $("viewHistoryButton").addEventListener("click",()=>switchView("history"));
@@ -1165,6 +1204,7 @@ async function bootAccessGate(){
  if(form&&!form.dataset.bound){form.dataset.bound="true";form.addEventListener("submit",async e=>{e.preventDefault();button.disabled=true;$("gateFeedback").textContent="Đang xác minh…";try{await api("/api/gate/unlock",{method:"POST",body:JSON.stringify({password:$("gatePasswordInput").value})});$("gatePasswordInput").value="";revealApplication();await checkSession();if(libraryLoadState==="loading")await loadServerLessons();refreshAdminPanel();renderAll();renderLibrary();wwApplyRouteFromLocation();$("gateFeedback").textContent="";}catch(err){$("gateFeedback").textContent=err.message+" · Hãy xác nhận bạn đã chạy server.py.";$("gatePasswordInput").focus()}finally{button.disabled=false}});}
 }
 function renderHistory(){
+  const notice=$("historyPersistenceNotice");if(notice)notice.textContent=currentUser?"Đã đăng nhập: lịch sử được đồng bộ riêng vào database tài khoản và khôi phục khi đăng nhập lại.":"Chưa đăng nhập: lịch sử chỉ lưu trong trình duyệt này; hãy đăng nhập để đồng bộ lên tài khoản.";
   const root=$("historyList");root.innerHTML="";
   if(!history.length){root.innerHTML='<div class="empty-state"><strong>Chưa có bài làm nào</strong>Hoàn thành một lượt luyện tập và nhấn “Nộp toàn bài” để lưu lịch sử.</div>';return}
   history.forEach((r,idx)=>{const card=document.createElement("article");card.className="history-card";const date=new Date(r.date).toLocaleString("vi-VN");const isIndependent=r.mode==="independent";const details=isIndependent?`<div class="history-answer"><strong>BÀI VIẾT TỰ DO</strong><p>${escapeHtml(r.essayText||"")}</p></div>`:(r.answers||[]).map((a,i)=>`<div class="history-answer"><strong>CÂU ${i+1} · ${escapeHtml((r.essay||ESSAY)[i]?.vi||"")}</strong>${escapeHtml(a||"Chưa trả lời")}</div>`).join("");card.innerHTML=`<div class="history-card-heading"><h3>IELTS Writing ${escapeHtml(r.task||"Task 2")} · ${escapeHtml(r.lessonTitle||"Bài luyện")}${isIndependent?" · Tự viết":" · Dịch ngược"}</h3><button type="button" class="button danger-quiet" data-delete-history="${idx}" aria-label="Xóa lịch sử lượt làm này">Xóa</button></div><p>${escapeHtml(date)}</p><div class="history-meta"><span>${isIndependent?"Bài viết độc lập":`${r.completed}/${r.total} câu đã nhập`}</span><span>${r.words} từ</span><span>${Math.floor(r.seconds/60)} phút ${r.seconds%60} giây</span></div><details><summary style="margin-top:12px;cursor:pointer;font-size:11px;color:#635bdb">Xem lại bài làm</summary><div class="history-answers">${details}</div></details><div class="result-actions">${isIndependent?`<button class="button secondary" data-independent-retry="${idx}">Mở lại bài viết</button>`:`<button class="button secondary" data-retry="${idx}">Luyện lại bài này</button><button class="button secondary" data-prompt="${idx}">Tạo lại prompt</button>`}${r.feedback?`<button class="button secondary" data-feedback="${idx}">Xem phản hồi AI</button>`:""}</div>`;root.appendChild(card)});
@@ -1205,8 +1245,37 @@ function renderBreakdownChart(stats){if(!stats["Task 1"].count&&!stats["Task 2"]
 function renderRadarChart(stats){if(!stats["Task 1"].count&&!stats["Task 2"].count)return dashboardSvgEmpty("Chưa có điểm tiêu chí để tạo spider chart.");const W=500,H=385,cx=250,cy=186,r=125,axes=["TA / TR","CC","LR","GRA"],angles=[-Math.PI/2,0,Math.PI/2,Math.PI];const pt=(rad,i)=>[cx+Math.cos(angles[i])*rad,cy+Math.sin(angles[i])*rad];let svg=`<svg class="chart-svg radar-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Spider chart 4 tiêu chí Task 1 và Task 2">`;[3,6,9].forEach(v=>{const pts=angles.map((_,i)=>pt(r*v/9,i).join(",")).join(" ");svg+=`<polygon points="${pts}" fill="none" class="radar-grid"/><text x="${cx+5}" y="${cy-r*v/9+12}" class="chart-tick">${v}</text>`});angles.forEach((a,i)=>{const [x,y]=pt(r,i);svg+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" class="chart-gridline"/>`;let tx=x+Math.cos(a)*18,ty=y+Math.sin(a)*18+(i===0?-2:i===2?14:4),anchor=i===1?"start":i===3?"end":"middle";svg+=`<text x="${tx}" y="${ty}" text-anchor="${anchor}" class="radar-label">${axes[i]}</text>`});for(const [task,color] of [["Task 1","#80624f"],["Task 2","#a9b49a"]]){const vals=axes.map(l=>stats[task].criteria[l==="TA / TR"?"TA/TR":l]);if(vals.some(v=>v!==null)){const pts=vals.map((v,i)=>pt(r*(v===null?0:v)/9,i).join(",")).join(" ");svg+=`<polygon points="${pts}" fill="${color}" fill-opacity=".16" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>`;vals.forEach((v,i)=>{if(v!==null){const [x,y]=pt(r*v/9,i);svg+=`<circle cx="${x}" cy="${y}" r="4" fill="${color}"/><title>${task} ${axes[i]}: ${v.toFixed(2)}</title>`}})}}svg+=`<rect x="${cx-70}" y="${H-24}" width="10" height="10" rx="2" fill="#80624f"/><text x="${cx-55}" y="${H-15}" class="chart-legend">Task 1</text><rect x="${cx+18}" y="${H-24}" width="10" height="10" rx="2" fill="#a9b49a"/><text x="${cx+33}" y="${H-15}" class="chart-legend">Task 2</text></svg>`;return svg}
 function renderLeaderboardTable(items,task){if(!Array.isArray(items)||!items.length)return dashboardSvgEmpty(`Chưa có tài khoản nào có bài ${task} được chấm.`);return `<div class="leaderboard-table-wrap"><table class="leaderboard-table"><thead><tr><th>#</th><th>Tài khoản</th><th>Điểm TB</th><th>Lượt chấm</th></tr></thead><tbody>${items.map(item=>`<tr><td>${escapeHtml(item.rank)}</td><td>${escapeHtml(item.username)}</td><td><strong>${item.averageOverall==null?"—":Number(item.averageOverall).toFixed(2)}</strong></td><td>${escapeHtml(item.submissions)}</td></tr>`).join("")}</tbody></table></div>`}
 async function renderDashboard(){const notice=$("dashboardLoginNotice"),content=$("dashboardContent"),status=$("dashboardStatus");if(!currentUser){notice.hidden=false;content.hidden=true;return}notice.hidden=true;content.hidden=false;status.textContent="Đang tải dữ liệu dashboard…";try{const data=await api("/api/dashboard");const records=Array.isArray(data.myHistory)?data.myHistory:history;const graded=dashboardWritingRecords(records),stats=dashboardStats(graded);$("dashboardSummaryCards").innerHTML=["Task 1","Task 2"].map(task=>`<article class="dashboard-summary-card"><span>${task}</span><strong>${stats[task].average===null?"—":stats[task].average.toFixed(2)}</strong><small>Overall Band trung bình · ${stats[task].count} lượt chấm</small></article>`).join("");$("dashboardBandChart").innerHTML=renderBandDistributionChart(graded);$("dashboardBreakdownChart").innerHTML=renderBreakdownChart(stats);$("dashboardRadarChart").innerHTML=renderRadarChart(stats);$("leaderboardTask1").innerHTML=renderLeaderboardTable(data.leaderboard?.["Task 1"],"Task 1");$("leaderboardTask2").innerHTML=renderLeaderboardTable(data.leaderboard?.["Task 2"],"Task 2");$("leaderboardPrivacyNote").textContent=data.privacy||"Bảng xếp hạng chỉ dùng tên tài khoản và thống kê điểm tổng hợp.";status.textContent=`Đã tải ${graded.length} lượt Tự viết có điểm hợp lệ. Bài lịch sử chỉ được tính khi có kết quả AI lưu cùng bài.`}catch(err){status.textContent="Không tải được Dashboard: "+err.message;$("dashboardBandChart").innerHTML=dashboardSvgEmpty("Chưa thể tải dữ liệu.");$("dashboardBreakdownChart").innerHTML="";$("dashboardRadarChart").innerHTML=""}}
-async function deleteHistoryRecord(index){if(!Number.isInteger(index)||index<0||index>=history.length)return;const record=history[index];if(!confirm(`Xóa lượt làm “${record.lessonTitle||"Bài luyện"}” ngày ${new Date(record.date).toLocaleString("vi-VN")}? Thao tác này không xóa sổ tay lỗi sai hoặc bản nháp.`))return;const before=history.slice();history=history.filter((_,i)=>i!==index);localStorage.setItem(STORAGE.history,JSON.stringify(history));renderHistory();renderProgress();if(currentUser){try{await persistAccountStateNow();showToast("Đã xóa lượt làm khỏi lịch sử tài khoản.")}catch(err){history=before;localStorage.setItem(STORAGE.history,JSON.stringify(history));renderHistory();showToast("Không đồng bộ được việc xóa: "+err.message);return}}else showToast("Đã xóa khỏi lịch sử trên trình duyệt này. Đăng nhập để đồng bộ giữa các thiết bị.");if(!$("dashboardView")?.hidden)renderDashboard()}
-async function clearAllHistory(){if(!history.length){showToast("Lịch sử đang trống.");return}if(!confirm(`Xóa toàn bộ ${history.length} lượt làm khỏi lịch sử? Thao tác không xóa sổ tay lỗi sai hoặc bản nháp và không thể hoàn tác trên tài khoản sau khi đồng bộ.`))return;const before=history.slice();history=[];localStorage.setItem(STORAGE.history,JSON.stringify(history));renderHistory();renderProgress();const status=$("historyDeleteStatus");if(currentUser){try{await persistAccountStateNow();if(status)status.textContent="Đã xóa toàn bộ lịch sử và đồng bộ lên tài khoản.";showToast("Đã xóa lịch sử tài khoản.")}catch(err){history=before;localStorage.setItem(STORAGE.history,JSON.stringify(history));renderHistory();if(status)status.textContent="Không thể đồng bộ: "+err.message;showToast("Không xóa được lịch sử trên máy chủ.");return}}else{if(status)status.textContent="Đã xóa lịch sử trên trình duyệt hiện tại. Đăng nhập để đồng bộ xóa lịch sử giữa các thiết bị.";showToast("Đã xóa lịch sử trên trình duyệt này.")}if(!$("dashboardView")?.hidden)renderDashboard()}
+async function deleteHistoryRecord(index){
+ if(!Number.isInteger(index)||index<0||index>=history.length)return;
+ const record=history[index];
+ if(!confirm(`Xóa lượt làm “${record.lessonTitle||"Bài luyện"}” ngày ${new Date(record.date).toLocaleString("vi-VN")}? Thao tác này không xóa sổ tay lỗi sai hoặc bản nháp.`))return;
+ if(currentUser){
+  clearTimeout(historySyncTimer);historySyncTimer=null;
+  try{await historySyncQueue.catch(()=>{});await api("/api/history/"+encodeURIComponent(String(record.id)),{method:"DELETE"})}
+  catch(err){showToast("Không xóa được lịch sử trên máy chủ: "+err.message);return}
+ }
+ history=history.filter((_,i)=>i!==index);
+ try{localStorage.setItem(STORAGE.history,JSON.stringify(history.slice(0,100)))}catch{}
+ renderHistory();renderProgress();
+ if(currentUser)showToast("Đã xóa lượt làm khỏi lịch sử tài khoản.");
+ else showToast("Đã xóa khỏi lịch sử trên trình duyệt này. Đăng nhập để đồng bộ giữa các thiết bị.");
+ if(!$("dashboardView")?.hidden)renderDashboard();
+}
+async function clearAllHistory(){
+ if(!history.length){showToast("Lịch sử đang trống.");return}
+ if(!confirm(`Xóa toàn bộ ${history.length} lượt làm khỏi lịch sử? Thao tác không xóa sổ tay lỗi sai hoặc bản nháp và không thể hoàn tác trên tài khoản sau khi đồng bộ.`))return;
+ const status=$("historyDeleteStatus");
+ if(currentUser){
+  clearTimeout(historySyncTimer);historySyncTimer=null;
+  try{await historySyncQueue.catch(()=>{});await api("/api/history",{method:"DELETE"})}
+  catch(err){if(status)status.textContent="Không thể đồng bộ việc xóa: "+err.message;showToast("Không xóa được lịch sử trên máy chủ.");return}
+ }
+ history=[];try{localStorage.setItem(STORAGE.history,"[]")}catch{}
+ renderHistory();renderProgress();
+ if(currentUser){if(status)status.textContent="Đã xóa toàn bộ lịch sử và đồng bộ lên tài khoản.";showToast("Đã xóa lịch sử tài khoản.")}
+ else{if(status)status.textContent="Đã xóa lịch sử trên trình duyệt hiện tại. Đăng nhập để đồng bộ xóa lịch sử giữa các thiết bị.";showToast("Đã xóa lịch sử trên trình duyệt này.")}
+ if(!$("dashboardView")?.hidden)renderDashboard();
+}
 
 function renderMistakes(){
   const root=$("mistakeList");root.innerHTML="";
@@ -1232,18 +1301,20 @@ function openAccount(){accountMode="login";$("accountFeedback").textContent="";$
 $("accountModeButton").addEventListener("click",()=>{accountMode=accountMode==="login"?"register":"login";$("accountTitle").textContent=accountMode==="register"?"Tạo tài khoản":"Đăng nhập";$("accountSubmitButton").textContent=accountMode==="register"?"Đăng ký":"Đăng nhập";$("accountPassword").setAttribute("autocomplete",accountMode==="register"?"new-password":"current-password");$("accountPassword").setAttribute("minlength","5");$("accountPassword").placeholder="Ít nhất 5 ký tự";$("accountSwitchText").textContent=accountMode==="register"?"Đã có tài khoản?":"Chưa có tài khoản?";$("accountModeButton").textContent=accountMode==="register"?"Đăng nhập":"Tạo tài khoản";$("accountFeedback").textContent="";});
 $("accountForm").addEventListener("submit",async e=>{e.preventDefault();if(currentUser)return;const username=$("accountUsername").value.trim(),password=$("accountPassword").value;$("accountSubmitButton").disabled=true;$("accountFeedback").textContent=accountMode==="register"?"Đang tạo tài khoản…":"Đang đăng nhập…";try{
   const endpoint=accountMode==="register"?"/api/register":"/api/login";
+  const guestHistory=Array.isArray(history)?history.slice(0,100):[];
   const result=await api(endpoint,{method:"POST",body:JSON.stringify({username,password})});
   currentUser=result.user;
   const remote=await api("/api/state").catch(()=>({state:null}));
   if(!applyRemoteState(remote.state))resetAccountState();
   await migrateLegacyCustomLessonsIfNeeded(remote.state);
   if(!remote.state)await pushState();
+  try{await loadAccountHistory(guestHistory)}catch(err){showToast("Không tải được lịch sử từ tài khoản: "+err.message)}
   await applySavedFeedbackCorrections();
   $("accountFeedback").textContent="Đăng nhập thành công. Dữ liệu đã được đồng bộ."; $("accountFeedback").classList.add("ok");
   renderAll();renderProfile();renderHistory();await loadServerLessons();updateSavedDraftUI();refreshAdminPanel();setTimeout(()=>{$("accountDialog").close();if(savedStudyDraft)resumeSavedStudyDraft();else showToast("Đã đăng nhập: "+currentUser.username);},650);
 }catch(err){$("accountFeedback").textContent=err.message;$("accountFeedback").classList.remove("ok")}finally{$("accountSubmitButton").disabled=false}});
 $("accountLogoutButton").addEventListener("click",async()=>{try{await pushState()}catch{}try{await api("/api/logout",{method:"POST",body:"{}"})}catch{}currentUser=null;customLessons=[];resetAccountState();refreshAdminPanel();renderLibrary();$("accountDialog").close();$("accountFeedback").textContent="";$("accountFeedback").classList.remove("ok");renderProfile();updateSavedDraftUI();showToast("Đã đăng xuất. Bản nháp đã lưu vẫn được giữ trong tài khoản.")});
-async function checkSession(){try{const result=await api("/api/me");if(result.authenticated){currentUser=result.user;const remote=await api("/api/state");if(remote.state)applyRemoteState(remote.state);else resetAccountState();await migrateLegacyCustomLessonsIfNeeded(remote.state);if(!remote.state)await pushState();await applySavedFeedbackCorrections();renderAll();renderProfile();await loadServerLessons();renderLibrary();updateSavedDraftUI();refreshAdminPanel();if(savedStudyDraft)resumeSavedStudyDraft()}}catch{}}
+async function checkSession(){try{const result=await api("/api/me");if(result.authenticated){currentUser=result.user;const remote=await api("/api/state");if(remote.state)applyRemoteState(remote.state);else resetAccountState();await migrateLegacyCustomLessonsIfNeeded(remote.state);if(!remote.state)await pushState();try{await loadAccountHistory()}catch(err){console.warn("Cannot load account history:",err.message)}await applySavedFeedbackCorrections();renderAll();renderProfile();await loadServerLessons();renderLibrary();updateSavedDraftUI();refreshAdminPanel();if(savedStudyDraft)resumeSavedStudyDraft()}}catch{}}
 
 function openProfile(){$("nameInput").value=profile.name==="Người học"?"":profile.name;$("profileDialog").showModal()}
 $("saveProfileButton").addEventListener("click",e=>{e.preventDefault();profile.name=$("nameInput").value.trim()||"Người học";write(STORAGE.profile,profile);renderProfile();$("profileDialog").close();showToast("Đã lưu tên hồ sơ trên trình duyệt.")});
