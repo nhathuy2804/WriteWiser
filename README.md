@@ -1,3 +1,9 @@
+## v35 — Fix mở giao diện làm bài (17/10/2026)
+
+- Sửa `wwSyncBrowserRoute()` dùng rõ `window.history.pushState()` và `window.history.replaceState()`. Trước đó, biến ứng dụng `let history = ...` lưu lịch sử bài làm đã che khuất đối tượng History của trình duyệt, khiến tab thư viện hoặc mở đề báo `history.pushState is not a function`.
+- Tăng cache-busting của `app.js` lên `?v=35` để trình duyệt lấy mã JavaScript đã sửa.
+- Không thay đổi dữ liệu, API, cấu hình Render hay cơ sở dữ liệu.
+
 # WriteWiser v34 — SEO routes & Google Search Console
 
 Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để triển khai nhiều người dùng trên hosting từ xa.
