@@ -1,8 +1,15 @@
-## v35 — Fix mở giao diện làm bài (17/10/2026)
+# WriteWiser v36 — History Review & Standard JSON Scoring
 
-- Sửa `wwSyncBrowserRoute()` dùng rõ `window.history.pushState()` và `window.history.replaceState()`. Trước đó, biến ứng dụng `let history = ...` lưu lịch sử bài làm đã che khuất đối tượng History của trình duyệt, khiến tab thư viện hoặc mở đề báo `history.pushState is not a function`.
-- Tăng cache-busting của `app.js` lên `?v=35` để trình duyệt lấy mã JavaScript đã sửa.
-- Không thay đổi dữ liệu, API, cấu hình Render hay cơ sở dữ liệu.
+- Lịch sử AI review khôi phục `question`, `task`, `lessonTitle` và bài nộp từ snapshot của lượt làm, không dùng nhầm đề đang mở trong thư viện. Kết quả cũ hiển thị snapshot đề/bài đã chấm; vùng bài viết ở chế độ xem lại là chỉ đọc.
+- Prompt AI ở chế độ Tự viết yêu cầu một JSON contract thống nhất, đủ 4 tiêu chí và điểm breakdown nguyên 0–9; Overall Band do server tính từ bốn tiêu chí và làm tròn nửa band.
+- `vocabulary_review` và `grammar_review` tạo bảng sửa lỗi riêng khi có bằng chứng phù hợp; các trường này là tùy chọn. `paragraph_feedback`, `upgraded_version`, `next_steps` và `additional_notes` cũng có thể rỗng nếu không phù hợp với bài cụ thể.
+- Server chuẩn hóa các tên trường thay thế phổ biến từ AI provider trước khi lưu/hiển thị kết quả.
+
+## v35 — Fix mở giao diện làm bài
+
+- Sửa `wwSyncBrowserRoute()` sử dụng rõ `window.history.pushState()` và `window.history.replaceState()`, tránh xung đột với biến `history` lưu lịch sử bài làm.
+- Tăng cache-busting của `app.js` lên `?v=35` ở bản v35. Bản v36 tiếp tục tăng cache-busting lên `?v=36` cho `app.js` và `styles.css`.
+- Không thay đổi dữ liệu, API key, cấu hình Render hay cơ sở dữ liệu.
 
 # WriteWiser v34 — SEO routes & Google Search Console
 

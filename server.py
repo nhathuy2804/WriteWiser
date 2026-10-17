@@ -554,7 +554,7 @@ def build_scoring_rubric(task):
     except Exception:
         benchmark_catalog = []
     lines.extend(["", "=== THAM CHIẾU SAMPLE ĐƯỢC ĐỊNH DANH TRONG CATALOG ===", json.dumps(benchmark_catalog, ensure_ascii=False), "Lưu ý: catalog này chỉ mô tả các sample đã có nguồn/band được xác nhận; không được giả vờ rằng nó chứa sample được chấm chính thức cho mọi band 5–9. Khi thiếu sample ở band cụ thể, hãy coi các anchor trong descriptor là căn cứ chính và chỉ tạo sample hiệu chuẩn mô phỏng nếu cần; phải ghi rõ sample mô phỏng không phải bài chính thức."])
-    lines.extend(["", "QUY TẮC ĐẦU RA BẮT BUỘC CỦA WRITEWISER v13: điểm của từng tiêu chí phải là SỐ NGUYÊN từ 0 đến 9, tuyệt đối không dùng .5. Overall được tính trung bình bốn tiêu chí và làm tròn tới band 0.5 gần nhất."])
+    lines.extend(["", "QUY TẮC ĐẦU RA BẮT BUỘC CỦA WRITEWISER: điểm của từng tiêu chí phải là SỐ NGUYÊN từ 0 đến 9, tuyệt đối không dùng .5. Overall được tính trung bình bốn tiêu chí và làm tròn tới band 0.5 gần nhất."])
     # Include only a small number of admin-approved calibration examples; never user-private edits.
     try:
         with db() as c:
@@ -569,7 +569,137 @@ def build_scoring_rubric(task):
             lines.extend(["", "=== HIỆU CHUẨN ĐƯỢC ADMIN DUYỆT (chỉ là ví dụ bổ trợ; descriptor vẫn là căn cứ chính) ===", json.dumps(examples,ensure_ascii=False)])
     except Exception:
         pass
+    # This final contract intentionally appears after the user-supplied master prompt
+    # so the model receives one stable output schema even when older prompt text
+    # contains a different JSON example or Markdown-oriented formatting requests.
+    lines.extend([
+        "", "=== WRITEWISER v36 — JSON OUTPUT CONTRACT OVERRIDE (ƯU TIÊN CAO NHẤT) ===",
+        "Chỉ trả về MỘT JSON object hợp lệ, không Markdown fence, không bảng Markdown bên ngoài JSON và không có lời dẫn ngoài JSON.",
+        "Bắt buộc có đúng 4 phần tử criteria theo thứ tự: Task Achievement (Task 1) hoặc Task Response (Task 2), Coherence and Cohesion, Lexical Resource, Grammatical Range and Accuracy. Band từng tiêu chí là số nguyên 0–9; server sẽ tính overall_band từ bốn band đó.",
+        "Schema chuẩn: overall_band (number), word_count (integer), task_criterion ('TA' hoặc 'TR'), criteria[{name,band,rationale,strengths[],weaknesses[],evidence[],improvements[],next_band_gap}], overall_summary, strengths[], priority_errors[{original,correction,explanation,criterion}], vocabulary_review[{original,correction,explanation,issue_type}], grammar_review[{original,correction,explanation}], paragraph_feedback[{paragraph,comment,suggestions[]}], upgraded_version, next_steps[], additional_notes[], caveat.",
+        "Mỗi tiêu chí phải có rationale, strengths, weaknesses, evidence và improvements. Evidence phải trích nguyên văn từ bài. Mảng vocabulary_review và grammar_review là OPTIONAL: trả [] nếu không có ví dụ phù hợp, không tạo lỗi giả và không ép mục nào phải có nội dung. paragraph_feedback, upgraded_version, next_steps và additional_notes cũng có thể rỗng hoặc [] nếu không hữu ích cho bài cụ thể.",
+        "Trong vocabulary_review, original phải là cụm nguyên văn từ bài viết; correction là bản sửa đề xuất; explanation giải thích ngắn về collocation, word choice, word form hoặc spelling. Đây là dữ liệu để frontend dựng bảng 'Cách viết trong bài / Cách sửa phù hợp / Giải thích', không trả dữ liệu dạng Markdown table.",
+        "Trong grammar_review, original là câu/cụm nguyên văn, correction là bản sửa, explanation giải thích cấu trúc hoặc nguyên tắc. Các lỗi trọng yếu không thuộc từ vựng có thể được đặt trong priority_errors. Hạn chế trùng lặp giữa các phần.",
+        "Dùng chuỗi rỗng cho trường text không áp dụng, [] cho mảng rỗng. Không điền 'N/A', không bịa lỗi hoặc nội dung để lấp biểu mẫu. caveat mặc định: 'Điểm ước lượng dựa trên bài viết và các tiêu chí IELTS Writing, không phải điểm từ giám khảo IELTS chính thức.'",
+        'JSON template: {"overall_band":6.0,"word_count":250,"task_criterion":"TR","criteria":[{"name":"Task Response","band":6,"rationale":"...","strengths":["..."],"weaknesses":["..."],"evidence":["exact quote"],"improvements":["..."],"next_band_gap":"..."},{"name":"Coherence and Cohesion","band":6,"rationale":"...","strengths":[],"weaknesses":[],"evidence":[],"improvements":[],"next_band_gap":""},{"name":"Lexical Resource","band":6,"rationale":"...","strengths":[],"weaknesses":[],"evidence":[],"improvements":[],"next_band_gap":""},{"name":"Grammatical Range and Accuracy","band":5,"rationale":"...","strengths":[],"weaknesses":[],"evidence":[],"improvements":[],"next_band_gap":""}],"overall_summary":"...","strengths":[],"priority_errors":[],"vocabulary_review":[],"grammar_review":[],"paragraph_feedback":[],"upgraded_version":"","next_steps":[],"additional_notes":[],"caveat":"Điểm ước lượng dựa trên bài viết và các tiêu chí IELTS Writing, không phải điểm từ giám khảo IELTS chính thức."}'
+    ])
     return "\n".join(lines)
+
+def _as_json_list(value):
+    if isinstance(value, list):
+        return value
+    if value in (None, ""):
+        return []
+    return [value]
+
+
+def normalize_writing_feedback(payload, task, word_count):
+    """Normalize provider variations to the stable WriteWiser v36 scoring schema."""
+    if not isinstance(payload, dict):
+        return {}
+    feedback = dict(payload)
+    aliases = {
+        "overall_summary": ("summary", "overall_comment", "summary_overall"),
+        "strengths": ("overall_strengths", "positive_points"),
+        "priority_errors": ("errors", "corrections", "important_errors"),
+        "vocabulary_review": ("lexical_review", "lexical_corrections", "vocabulary_corrections", "lexical_items", "vocabulary_items", "vocabulary_table", "lexical_table"),
+        "grammar_review": ("grammar_corrections", "grammatical_corrections", "grammar_items", "grammar_examples"),
+        "paragraph_feedback": ("paragraph_review", "paragraphs", "paragraph_comments"),
+        "upgraded_version": ("reference_essay", "improved_essay", "rewritten_essay", "model_answer"),
+        "next_steps": ("improvement_plan", "priorities", "practice_steps"),
+        "additional_notes": ("notes", "cautions", "extra_notes"),
+        "caveat": ("disclaimer", "score_note"),
+    }
+    for canonical, alt_names in aliases.items():
+        if canonical not in feedback or feedback[canonical] is None:
+            for alt in alt_names:
+                if alt in feedback and feedback[alt] is not None:
+                    feedback[canonical] = feedback[alt]
+                    break
+    expected_names = ["Task Achievement" if task == "Task 1" else "Task Response", "Coherence and Cohesion", "Lexical Resource", "Grammatical Range and Accuracy"]
+    raw_criteria = feedback.get("criteria", feedback.get("criterion_scores", feedback.get("scores", [])))
+    if isinstance(raw_criteria, dict):
+        normalized_criteria = []
+        for index, expected in enumerate(expected_names):
+            code = ["TA" if task == "Task 1" else "TR", "CC", "LR", "GRA"][index]
+            match = next((v for k, v in raw_criteria.items() if str(k).strip().lower() in {expected.lower(), code.lower(), ("task achievement" if code=="TA" else "task response")}), None)
+            if isinstance(match, dict):
+                item = dict(match)
+            else:
+                item = {"band": match}
+            item.setdefault("name", expected)
+            normalized_criteria.append(item)
+        raw_criteria = normalized_criteria
+    criteria = []
+    if isinstance(raw_criteria, list):
+        for index, expected in enumerate(expected_names):
+            raw = raw_criteria[index] if index < len(raw_criteria) else {}
+            if not isinstance(raw, dict):
+                raw = {"band": raw}
+            item = dict(raw)
+            if not item.get("name") and item.get("criterion"):
+                item["name"] = item["criterion"]
+            item["name"] = expected
+            if "band" not in item and "score" in item:
+                item["band"] = item.get("score")
+            if "rationale" not in item:
+                item["rationale"] = item.get("comment", item.get("explanation", ""))
+            for key, alts in {
+                "strengths": ("positive_points", "good_points", "what_works"),
+                "weaknesses": ("areas_to_improve", "improvements_needed", "issues"),
+                "evidence": ("examples", "quotes", "evidence_from_essay"),
+                "improvements": ("suggestions", "recommendations", "corrections"),
+            }.items():
+                if key not in item:
+                    for alt in alts:
+                        if alt in item:
+                            item[key] = item[alt]
+                            break
+                item[key] = _as_json_list(item.get(key))
+            item["next_band_gap"] = str(item.get("next_band_gap", item.get("gap_to_next_band", "")) or "")
+            criteria.append(item)
+    feedback["criteria"] = criteria
+    feedback["task_criterion"] = "TA" if task == "Task 1" else "TR"
+    feedback["word_count"] = word_count
+    feedback["overall_summary"] = str(feedback.get("overall_summary", "") or "")
+    feedback["strengths"] = _as_json_list(feedback.get("strengths"))
+    # Structured correction sections should be arrays of objects. If a provider
+    # ignores the schema and emits a prose string, preserve that prose as an optional
+    # note rather than rendering an empty row in a correction table.
+    freeform_notes = _as_json_list(feedback.get("additional_notes"))
+    for key in ("priority_errors", "vocabulary_review", "grammar_review", "paragraph_feedback", "next_steps", "additional_notes"):
+        raw_value = feedback.get(key)
+        if key in ("priority_errors", "vocabulary_review", "grammar_review") and isinstance(raw_value, str) and raw_value.strip():
+            freeform_notes.append(f"{key}: {raw_value.strip()}")
+            items = []
+        else:
+            items = _as_json_list(raw_value)
+        normalized_items = []
+        for item in items:
+            if isinstance(item, str):
+                if key in ("priority_errors", "vocabulary_review", "grammar_review"):
+                    normalized_items.append({"original": item, "correction": "", "explanation": ""})
+                elif key == "paragraph_feedback":
+                    normalized_items.append({"paragraph": "Đoạn văn", "comment": item, "suggestions": []})
+                else:
+                    normalized_items.append(item)
+            elif isinstance(item, dict):
+                obj = dict(item)
+                if key in ("priority_errors", "vocabulary_review", "grammar_review"):
+                    obj.setdefault("original", obj.get("before", obj.get("original_text", obj.get("phrase", ""))))
+                    obj.setdefault("correction", obj.get("after", obj.get("suggestion", obj.get("revised", ""))))
+                    obj.setdefault("explanation", obj.get("reason", obj.get("why", "")))
+                elif key == "paragraph_feedback":
+                    obj.setdefault("paragraph", obj.get("name", obj.get("section", "Đoạn văn")))
+                    obj.setdefault("comment", obj.get("feedback", obj.get("analysis", "")))
+                    obj["suggestions"] = _as_json_list(obj.get("suggestions", obj.get("recommendations", [])))
+                normalized_items.append(obj)
+        feedback[key] = normalized_items
+    feedback["additional_notes"] = [x for x in freeform_notes if isinstance(x, str) and x.strip()]
+    feedback["upgraded_version"] = str(feedback.get("upgraded_version", "") or "")
+    feedback["caveat"] = str(feedback.get("caveat", "") or "Điểm ước lượng dựa trên bài viết và các tiêu chí IELTS Writing, không phải điểm từ giám khảo IELTS chính thức.")
+    return feedback
+
 
 def gemini_generate(system_instruction, prompt, max_output_tokens=6500, image_data=None):
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -1157,7 +1287,7 @@ class Handler(SimpleHTTPRequestHandler):
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
                     master_prompt = prompt_path.read_text(encoding="utf-8")
-                    return self.send_json(200, {"masterPromptLoaded": bool(master_prompt.strip()), "promptChars": len(master_prompt), "promptSha256": hashlib.sha256(master_prompt.encode("utf-8")).hexdigest(), "promptFile": "resources/ielts_writing_master_prompt.txt", "appliedTo": "/api/writing-feedback", "criteriaBands": "integer 0-9", "overallBand": "nearest half-band", "version": "13"})
+                    return self.send_json(200, {"masterPromptLoaded": bool(master_prompt.strip()), "promptChars": len(master_prompt), "promptSha256": hashlib.sha256(master_prompt.encode("utf-8")).hexdigest(), "promptFile": "resources/ielts_writing_master_prompt.txt", "appliedTo": "/api/writing-feedback", "criteriaBands": "integer 0-9", "overallBand": "nearest half-band", "version": "36"})
                 except Exception as exc:
                     return self.send_json(500, {"masterPromptLoaded": False, "error": "Không đọc được prompt chấm bài: " + str(exc)[:180]})
             if path == "/api/admin/calibrations":
@@ -1685,6 +1815,7 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
             prompt = "Hãy chấm bài theo rubric và JSON schema trong system instruction.\nTASK: " + task_note + "\nĐỀ BÀI:\n" + question.strip() + "\n\nBÀI VIẾT NGUYÊN VĂN:\n" + essay_text.strip() + f"\n\nSố từ tự đếm phía máy chủ: {word_count}. Hãy tự kiểm tra lại nếu cần." + image_note
             try:
                 feedback, model = ai_generate(rubric, prompt, max_output_tokens=9000, image_data=data.get("image_data"))
+                feedback = normalize_writing_feedback(feedback, task, word_count)
                 criteria = feedback.get("criteria") if isinstance(feedback, dict) else None
                 if not isinstance(feedback, dict) or not isinstance(criteria, list) or len(criteria) != 4:
                     return self.send_json(502, {"error": "Gemini trả về cấu trúc chấm bài không hợp lệ. Hãy thử lại."})
