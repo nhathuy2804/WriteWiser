@@ -150,14 +150,15 @@ lessonAnswers[currentLesson.id] = answers;
 let profile = read(STORAGE.profile, {name:"Người học"});
 let history = read(STORAGE.history, []);
 let mistakes = read(STORAGE.mistakes, []);
+let lessonProgress = read("draftwise.lessonProgress.v1", {});
 function read(key, fallback){try{const v=localStorage.getItem(key);return v?JSON.parse(v):fallback}catch{return fallback}}
 function write(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{showToast("Không thể lưu dữ liệu. Hãy kiểm tra dung lượng trình duyệt.")}scheduleSync()}
-function stateSnapshot(){return {profile,answers,lessonAnswers,independentDrafts,brainstormDrafts,currentLessonId:currentLesson.id,history:history.slice(0,100),mistakes,customLessons,studyDraft:savedStudyDraft}}
+function stateSnapshot(){return {profile,answers,lessonAnswers,independentDrafts,brainstormDrafts,currentLessonId:currentLesson.id,history:history.slice(0,100),lessonProgress,mistakes,customLessons,studyDraft:savedStudyDraft}}
 function resetAccountState(){
   clearTimeout(syncTimer);
-  profile={name:"Người học"}; history=[]; mistakes=[]; independentDrafts={}; brainstormDrafts={}; savedStudyDraft=null; studyDraftDirty=false; localStorage.setItem("writewiser.brainstormDrafts.v13",JSON.stringify(brainstormDrafts)); lessonAnswers={}; answers=Array(ESSAY.length).fill(""); customLessons=[];
+  profile={name:"Người học"}; history=[]; lessonProgress={}; mistakes=[]; independentDrafts={}; brainstormDrafts={}; savedStudyDraft=null; studyDraftDirty=false; localStorage.setItem("writewiser.brainstormDrafts.v13",JSON.stringify(brainstormDrafts)); lessonAnswers={}; answers=Array(ESSAY.length).fill(""); customLessons=[];
   applyLibraryLessons(); currentLesson=LESSONS[0]; ESSAY=currentLesson.essay; active=0; hintShown=false; practiceMode="reverse";
-  const defaults={"draftwise.profile.v1":profile,"draftwise.answers.v1":answers,"draftwise.history.v1":history,"draftwise.mistakes.v1":mistakes,"draftwise.lessonAnswers.v1":lessonAnswers,"draftwise.independentDrafts.v1":independentDrafts};
+  const defaults={"draftwise.profile.v1":profile,"draftwise.answers.v1":answers,"draftwise.history.v1":history,"draftwise.lessonProgress.v1":lessonProgress,"draftwise.mistakes.v1":mistakes,"draftwise.lessonAnswers.v1":lessonAnswers,"draftwise.independentDrafts.v1":independentDrafts};
   Object.entries(defaults).forEach(([k,v])=>localStorage.setItem(k,JSON.stringify(v)));localStorage.removeItem("draftwise.customLessons.v1");
   $("answerInput").value=""; $("independentEssayInput").value=""; $("resultPanel").hidden=true; $("independentResultPanel").hidden=true; renderAll(); renderProfile();
 }
@@ -239,6 +240,7 @@ function applyRemoteState(state){if(!state)return false;syncInProgress=true;try{
   if(state.profile&&typeof state.profile==="object")profile=state.profile;
   savedStudyDraft=(state.studyDraft&&typeof state.studyDraft==="object"&&typeof state.studyDraft.lessonId==="string")?state.studyDraft:null;studyDraftDirty=false;
   if(Array.isArray(state.history))history=state.history;
+  lessonProgress=(state.lessonProgress&&typeof state.lessonProgress==="object"&&!Array.isArray(state.lessonProgress))?state.lessonProgress:{};
   if(Array.isArray(state.mistakes))mistakes=state.mistakes;
   independentDrafts=(state.independentDrafts&&typeof state.independentDrafts==="object"&&!Array.isArray(state.independentDrafts))?state.independentDrafts:{};localStorage.setItem("draftwise.independentDrafts.v1",JSON.stringify(independentDrafts));brainstormDrafts=(state.brainstormDrafts&&typeof state.brainstormDrafts==="object"&&!Array.isArray(state.brainstormDrafts))?state.brainstormDrafts:{};localStorage.setItem("writewiser.brainstormDrafts.v13",JSON.stringify(brainstormDrafts))
   lessonAnswers=(state.lessonAnswers&&typeof state.lessonAnswers==="object"&&!Array.isArray(state.lessonAnswers))?state.lessonAnswers:{};
@@ -254,7 +256,7 @@ function applyRemoteState(state){if(!state)return false;syncInProgress=true;try{
   if(Array.isArray(lessonAnswers[currentLesson.id]))answers=lessonAnswers[currentLesson.id].slice(0,ESSAY.length).concat(Array(Math.max(0,ESSAY.length-lessonAnswers[currentLesson.id].length)).fill("")).slice(0,ESSAY.length);
   else if(Array.isArray(state.answers))answers=state.answers.slice(0,ESSAY.length).concat(Array(Math.max(0,ESSAY.length-state.answers.length)).fill("")).slice(0,ESSAY.length);
   lessonAnswers[currentLesson.id]=answers;
-  localStorage.setItem("draftwise.lessonAnswers.v1",JSON.stringify(lessonAnswers));localStorage.setItem(STORAGE.answers,JSON.stringify(answers));localStorage.setItem(STORAGE.profile,JSON.stringify(profile));localStorage.setItem(STORAGE.history,JSON.stringify(history));localStorage.setItem(STORAGE.mistakes,JSON.stringify(mistakes));
+  localStorage.setItem("draftwise.lessonAnswers.v1",JSON.stringify(lessonAnswers));localStorage.setItem(STORAGE.answers,JSON.stringify(answers));localStorage.setItem(STORAGE.profile,JSON.stringify(profile));localStorage.setItem(STORAGE.history,JSON.stringify(history));localStorage.setItem("draftwise.lessonProgress.v1",JSON.stringify(lessonProgress));localStorage.setItem(STORAGE.mistakes,JSON.stringify(mistakes));
 }finally{syncInProgress=false}return true}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function wordCount(s){return (s.trim().match(/\b[\w’'-]+\b/g)||[]).length}
@@ -387,7 +389,7 @@ async function submitIndependentWork(){
  const text=$("independentEssayInput").value.trim();
  if(text.length<30){showToast("Hãy viết bài dài hơn trước khi nộp.");return}
  const words=wordCount(text), record={id:Date.now(),date:new Date().toISOString(),mode:"independent",lessonId:currentLesson.id,lessonTitle:currentLesson.title,task:currentLesson.task,question:currentLesson.question,essayText:text,answers:[],essay:[],completed:1,total:1,words,seconds:Math.max(0,Math.floor((Date.now()-independentStart)/1000))};
- history.unshift(record);history=history.slice(0,100);write(STORAGE.history,history);
+ history.unshift(record);history=history.slice(0,100);write(STORAGE.history,history);updateLessonProgressFromRecord(record);
  const panel=$("independentResultPanel");panel.hidden=false;panel.innerHTML=`<div class="eyebrow">SUBMISSION SAVED</div><h2>Đang chấm bài Writing…</h2><p>Đã lưu bài ${words} từ. Đang gửi toàn bài đến AI để phân tích theo 4 tiêu chí.</p>`;panel.scrollIntoView({behavior:"smooth",block:"start"});
  const prompt=makeIndependentPrompt(record);
  try{
@@ -395,11 +397,11 @@ async function submitIndependentWork(){
   if(!health.aiConfigured)throw new Error("Chưa cấu hình AI provider. Hãy đặt ít nhất một trong các key GEMINI_API_KEY, GROQ_API_KEY, TOGETHER_API_KEY hoặc OPENROUTER_API_KEY.");
   const imageData=await getCurrentLessonImageData();
   const result=await api("/api/writing-feedback",{method:"POST",body:JSON.stringify({task:record.task,question:record.question,essay_text:text,image_data:imageData})});
-  record.feedback=result.feedback;record.aiModel=result.model||"AI provider";record.imageReceived=!!result.image_received;record.words=result.word_count||words;history[0]=record;
-  (Array.isArray(record.feedback.priority_errors)?record.feedback.priority_errors:[]).slice(0,5).forEach(item=>mistakes.unshift({title:(item.original||"Lỗi Writing").slice(0,120),note:[item.explanation,item.correction?"Gợi ý sửa: "+item.correction:""].filter(Boolean).join("\n"),date:new Date().toLocaleDateString("vi-VN"),sourceRecordId:record.id}));mistakes=mistakes.slice(0,200);write(STORAGE.mistakes,mistakes);write(STORAGE.history,history);
+  record.feedback=result.feedback;record.aiModel=result.model||"AI provider";record.imageReceived=!!result.image_received;record.words=result.word_count||words;const recordIndex=history.findIndex(item=>String(item.id)===String(record.id));if(recordIndex>=0)history[recordIndex]=record;updateLessonProgressFromRecord(record);
+  (Array.isArray(record.feedback.priority_errors)?record.feedback.priority_errors:[]).slice(0,5).forEach(item=>mistakes.unshift({title:(item.original||"Lỗi Writing").slice(0,120),note:[item.explanation,item.correction?"Gợi ý sửa: "+item.correction:""].filter(Boolean).join("\n"),date:new Date().toLocaleDateString("vi-VN"),sourceRecordId:record.id}));mistakes=mistakes.slice(0,200);write(STORAGE.mistakes,mistakes);write(STORAGE.history,history);if(currentUser){try{clearTimeout(syncTimer);await persistAccountStateNow()}catch{}}
   panel.innerHTML=`<p class="ai-model-note">Đã phân tích bằng ${escapeHtml(record.aiModel)}. ${record.task==="Task 1"?(record.imageReceived?"Ảnh đề đã được gửi kèm cho model.":"Không gửi được ảnh đề; hãy kiểm tra hình và số liệu thủ công."):""} Bài làm đã được lưu vào lịch sử.</p>${renderIndependentFeedback(record.feedback,record)}<div class="result-actions"><button class="button secondary" id="independentHistoryButton">Xem lịch sử</button><button class="button secondary" id="independentPromptButton">Tạo prompt dự phòng</button></div><div id="independentPromptArea" hidden><label class="input-label" for="independentPromptOutput">Prompt chấm bài</label><textarea id="independentPromptOutput" class="prompt-box" readonly></textarea><button class="button primary" id="independentCopyPromptButton">Sao chép prompt</button></div>`;
   $("independentHistoryButton").addEventListener("click",()=>switchView("history"));
-  $("saveFeedbackCorrectionButton")?.addEventListener("click",async()=>{const btn=$("saveFeedbackCorrectionButton"),status=$("feedbackCorrectionStatus");btn.disabled=true;status.textContent="Đang lưu hiệu chỉnh riêng vào tài khoản…";try{let corrected;try{corrected=JSON.parse($("correctedFeedbackJson").value)}catch{throw new Error("JSON không hợp lệ. Hãy sửa cú pháp trước khi lưu.")}const result=await api("/api/feedback-corrections",{method:"POST",body:JSON.stringify({payload:{task:record.task,question:record.question,essay_excerpt:record.essayText.slice(0,1800),original_feedback:record.feedback,corrected_feedback:corrected,corrected_bands:Object.fromEntries((corrected.criteria||[]).map(c=>[c.name,c.band])),reasoning:$("calibrationReason").value.trim(),recordId:record.id}})});record.feedback=corrected;history[0]=record;write(STORAGE.history,history);status.textContent="Đã lưu hiệu chỉnh vào database theo tài khoản. Hiệu chỉnh chưa tác động đến model toàn hệ thống; admin có thể xem xét và duyệt.";showToast("Đã lưu hiệu chỉnh chấm bài.");}catch(e){status.textContent=e.message;}finally{btn.disabled=false;}});
+  $("saveFeedbackCorrectionButton")?.addEventListener("click",async()=>{const btn=$("saveFeedbackCorrectionButton"),status=$("feedbackCorrectionStatus");btn.disabled=true;status.textContent="Đang lưu hiệu chỉnh riêng vào tài khoản…";try{let corrected;try{corrected=JSON.parse($("correctedFeedbackJson").value)}catch{throw new Error("JSON không hợp lệ. Hãy sửa cú pháp trước khi lưu.")}const originalFeedback=record.feedback?JSON.parse(JSON.stringify(record.feedback)):null;const result=await api("/api/feedback-corrections",{method:"POST",body:JSON.stringify({payload:{task:record.task,question:record.question,essay_excerpt:record.essayText.slice(0,1800),original_feedback:originalFeedback,corrected_feedback:corrected,corrected_bands:Object.fromEntries((corrected.criteria||[]).map(c=>[c.name,c.band])),reasoning:$("calibrationReason").value.trim(),recordId:record.id}})});record.feedback=corrected;record.feedbackCorrected=true;record.correctedAt=new Date().toISOString();record.feedbackCorrectionId=result.id;const historyIndex=history.findIndex(item=>String(item.id)===String(record.id));if(historyIndex>=0)history[historyIndex]=record;write(STORAGE.history,history);updateLessonProgressFromRecord(record);clearTimeout(syncTimer);await persistAccountStateNow();renderLibrary();if(!$("dashboardView")?.hidden)renderDashboard();status.textContent="Đã lưu hiệu chỉnh vào database theo tài khoản. Hiệu chỉnh chưa tác động đến model toàn hệ thống; admin có thể xem xét và duyệt.";showToast("Đã lưu hiệu chỉnh chấm bài và cập nhật thẻ trong thư viện.");}catch(e){status.textContent=e.message;}finally{btn.disabled=false;}});
   $("independentPromptButton").addEventListener("click",()=>{$("independentPromptArea").hidden=false;$("independentPromptOutput").value=prompt;$("independentCopyPromptButton").onclick=async()=>{try{await navigator.clipboard.writeText(prompt);showToast("Đã sao chép prompt.")}catch{$("independentPromptOutput").select();document.execCommand("copy")}}});
   showToast("Đã chấm bài Writing và lưu kết quả.");
  }catch(err){
@@ -481,7 +483,7 @@ async function submitWork(){
   saveCurrent();
   const done=answers.filter(a=>a.trim()).length;
   const record={id:Date.now(),date:new Date().toISOString(),lessonId:currentLesson.id,lessonTitle:currentLesson.title,task:currentLesson.task,question:currentLesson.question,essay:ESSAY.map(s=>({...s})),answers:[...answers],completed:done,total:ESSAY.length,words:answers.reduce((n,a)=>n+wordCount(a),0),seconds:Math.round((Date.now()-timerStart)/1000)};
-  history.unshift(record);history=history.slice(0,100);write(STORAGE.history,history);
+  history.unshift(record);history=history.slice(0,100);write(STORAGE.history,history);updateLessonProgressFromRecord(record);
   const prompt=makePrompt(record);
   $("resultPanel").hidden=false;
   $("resultPanel").innerHTML=`<div class="eyebrow">SUBMISSION SAVED</div><h2>Đang chuẩn bị phản hồi…</h2><p>Đã lưu bài làm: ${done}/${ESSAY.length} câu, ${record.words} từ. Hệ thống đang kiểm tra xem AI tự động đã được cấu hình chưa.</p><div class="result-stats"><div class="result-stat"><strong>${done}/${ESSAY.length}</strong><span>Câu đã nhập</span></div><div class="result-stat"><strong>${record.words}</strong><span>Tổng số từ</span></div><div class="result-stat"><strong>${Math.floor(record.seconds/60)}m ${record.seconds%60}s</strong><span>Thời gian phiên</span></div></div><p>Vui lòng giữ trang mở trong khi xử lý.</p>`;
@@ -494,7 +496,7 @@ async function submitWork(){
       const recurring=Array.isArray(record.feedback.recurring_errors)?record.feedback.recurring_errors:[];
       recurring.forEach(item=>mistakes.unshift({title:item.title||"Lỗi cần ôn tập",note:[item.explanation,item.example?"Ví dụ: "+item.example:""].filter(Boolean).join("\n"),date:new Date().toLocaleDateString("vi-VN"),sourceRecordId:record.id}));
       mistakes=mistakes.slice(0,200);write(STORAGE.mistakes,mistakes);
-      history[0]=record;write(STORAGE.history,history);
+      const recordIndex=history.findIndex(item=>String(item.id)===String(record.id));if(recordIndex>=0)history[recordIndex]=record;write(STORAGE.history,history);if(currentUser){try{clearTimeout(syncTimer);await persistAccountStateNow()}catch{}}
       $("resultPanel").innerHTML=`<div class="eyebrow">AI REVIEW COMPLETE</div><h2>Đã phân tích bài làm.</h2><p>Phản hồi được tạo tự động từ toàn bộ bài và đã lưu trong lịch sử. Mô hình: ${escapeHtml(record.aiModel)}.</p><div class="result-stats"><div class="result-stat"><strong>${done}/${ESSAY.length}</strong><span>Câu đã nhập</span></div><div class="result-stat"><strong>${record.words}</strong><span>Tổng số từ</span></div><div class="result-stat"><strong>${Math.floor(record.seconds/60)}m ${record.seconds%60}s</strong><span>Thời gian phiên</span></div></div>${renderFeedback(record.feedback)}<div class="result-actions"><button class="button secondary" id="showPromptButton">Tạo prompt dự phòng</button><button class="button secondary" id="viewHistoryButton">Xem lịch sử</button></div><div id="manualPromptArea" hidden><label class="input-label" for="promptOutput">Prompt phân tích thủ công</label><textarea id="promptOutput" class="prompt-box" readonly></textarea><div class="result-actions"><button class="button primary" id="copyPromptButton">Sao chép prompt</button><button class="button secondary" id="openChatGPTButton">Mở ChatGPT ↗</button></div></div>`;
       $("showPromptButton").addEventListener("click",()=>{$("manualPromptArea").hidden=false;$("promptOutput").value=prompt;attachResultActions(prompt)});
       $("viewHistoryButton").addEventListener("click",()=>switchView("history"));
@@ -525,6 +527,125 @@ function refreshLibraryFilters(){
  topicEl.innerHTML='<option value="all">Tất cả chủ đề</option>'+validTopics.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join("");
  topicEl.value=validTopics.includes(priorTopic)?priorTopic:"all";
 }
+function lessonScoreNumber(value){
+ if(value===null||value===undefined||typeof value==="boolean")return null;
+ const match=typeof value==="number"?String(value).match(/^\d+(?:\.\d+)?$/):String(value).match(/(?:^|\D)([0-9](?:\.5)?)(?!\d)/);
+ const number=match?(typeof value==="number"?Number(value):Number(match[1])):NaN;
+ return Number.isFinite(number)&&number>=0&&number<=9?number:null;
+}
+function normalizeLessonProgressEntry(entry){
+ const p=entry&&typeof entry==="object"?entry:{};
+ const scoredAttempts=Array.isArray(p.scoredAttempts)?p.scoredAttempts.filter(x=>x&&x.recordId!==undefined&&lessonScoreNumber(x.score)!==null).map(x=>({recordId:String(x.recordId),score:lessonScoreNumber(x.score),corrected:!!x.corrected,date:String(x.date||"")})):[];
+ return {attempted:!!p.attempted,scoredAttempts,lastAttemptAt:String(p.lastAttemptAt||"")};
+}
+function saveLessonProgress(){
+ try{localStorage.setItem("draftwise.lessonProgress.v1",JSON.stringify(lessonProgress));}catch{}
+ scheduleSync();
+}
+function updateLessonProgressFromRecord(record){
+ if(!record||!record.lessonId)return;
+ const key=String(record.lessonId),entry=normalizeLessonProgressEntry(lessonProgress[key]);entry.attempted=true;
+ entry.lastAttemptAt=String(record.date||new Date().toISOString());
+ const score=record.mode==="independent"&&record.feedback?lessonScoreNumber(record.feedback.overall_band):null;
+ if(score!==null){
+   const attempt={recordId:String(record.id),score,corrected:!!record.feedbackCorrected,date:String(record.date||"")};
+   const idx=entry.scoredAttempts.findIndex(item=>item.recordId===attempt.recordId);
+   if(idx>=0)entry.scoredAttempts[idx]=attempt;else entry.scoredAttempts.push(attempt);
+   entry.scoredAttempts=entry.scoredAttempts.slice(-1000);
+ }
+ lessonProgress[key]=entry;saveLessonProgress();
+}
+function rebuildLessonProgressFromHistory(){
+ const progress=(lessonProgress&&typeof lessonProgress==="object"&&!Array.isArray(lessonProgress))?{...lessonProgress}:{};
+ let changed=false;
+ for(const record of (Array.isArray(history)?history:[])){
+   if(!record||!record.lessonId)continue;
+   const key=String(record.lessonId),entry=normalizeLessonProgressEntry(progress[key]);
+   if(!entry.attempted){entry.attempted=true;changed=true;}
+   if(record.date&&record.date>entry.lastAttemptAt){entry.lastAttemptAt=String(record.date);changed=true;}
+   const score=record.mode==="independent"&&record.feedback?lessonScoreNumber(record.feedback.overall_band):null;
+   if(score!==null){
+     const attempt={recordId:String(record.id),score,corrected:!!record.feedbackCorrected,date:String(record.date||"")};
+     const idx=entry.scoredAttempts.findIndex(item=>item.recordId===attempt.recordId);
+     if(idx<0){entry.scoredAttempts.push(attempt);changed=true;}
+     else if(entry.scoredAttempts[idx].score!==attempt.score||entry.scoredAttempts[idx].corrected!==attempt.corrected){entry.scoredAttempts[idx]=attempt;changed=true;}
+   }
+   progress[key]=entry;
+ }
+ if(changed||JSON.stringify(progress)!==JSON.stringify(lessonProgress)){
+   lessonProgress=progress;
+   try{localStorage.setItem("draftwise.lessonProgress.v1",JSON.stringify(lessonProgress));}catch{}
+   scheduleSync();
+ }
+ return changed;
+}
+function lessonProgressTags(lesson){
+ const id=String(lesson.id),stored=lessonProgress&&typeof lessonProgress==="object"?lessonProgress[id]:null;
+ const progress=normalizeLessonProgressEntry(stored);
+ const attempts=history.filter(record=>record&&String(record.lessonId||"")===id);
+ if(!progress.attempted&&!attempts.length)return '<span class="tag lesson-progress-tag not-started" title="Bạn chưa có lượt làm bài này">Chưa làm</span>';
+ for(const record of attempts){
+   const score=record.mode==="independent"&&record.feedback?lessonScoreNumber(record.feedback.overall_band):null;
+   if(score===null)continue;
+   const recordId=String(record.id),idx=progress.scoredAttempts.findIndex(item=>item.recordId===recordId);
+   const item={recordId,score,corrected:!!record.feedbackCorrected,date:String(record.date||"")};
+   if(idx>=0)progress.scoredAttempts[idx]=item;else progress.scoredAttempts.push(item);
+ }
+ if(!progress.attempted&&attempts.length)progress.attempted=true;
+ if(!progress.attempted)return '<span class="tag lesson-progress-tag not-started" title="Bạn chưa có lượt làm bài này">Chưa làm</span>';
+ if(!progress.scoredAttempts.length)return '<span class="tag lesson-progress-tag completed" title="Đã có lượt làm, nhưng chưa có Overall Band AI hợp lệ">Đã làm</span>';
+ const scored=[...progress.scoredAttempts].sort((x,y)=>y.score-x.score||String(y.date||"").localeCompare(String(x.date||"")));
+ const best=scored[0],display=Number.isInteger(best.score)?best.score.toFixed(1):String(best.score);
+ const tags=[];
+ if(best.corrected)tags.push(`<span class="tag lesson-progress-tag corrected" title="Điểm cao nhất lấy từ kết quả đã được bạn hiệu chỉnh">Đã hiệu chỉnh · cao nhất ${display}</span>`);
+ else tags.push(`<span class="tag lesson-progress-tag scored" title="Điểm Overall Band cao nhất trong các lượt chấm bài này">Đã làm · cao nhất ${display}</span>`);
+ if(scored.some(item=>item.corrected)&&!best.corrected)tags.push('<span class="tag lesson-progress-tag corrected-note" title="Có ít nhất một lượt chấm của bài này đã được hiệu chỉnh">Có hiệu chỉnh</span>');
+ return tags.join("");
+}
+async function applySavedFeedbackCorrections(){
+ if(!currentUser)return false;
+ let data;try{data=await api("/api/feedback-corrections/mine")}catch{const rebuilt=rebuildLessonProgressFromHistory();return !!rebuilt}
+ const items=Array.isArray(data.items)?data.items:[];
+ const byRecord=new Map(items.map(item=>[String(item.recordId),item]));let changedHistory=false,changedProgress=false;
+ history=history.map(record=>{
+   const correction=byRecord.get(String(record?.id??""));
+   if(!correction||!correction.correctedFeedback||typeof correction.correctedFeedback!=="object")return record;
+   const correctedAt=new Date(Number(correction.createdAt||0)*1000).toISOString();
+   const sameFeedback=JSON.stringify(record.feedback||{})===JSON.stringify(correction.correctedFeedback);
+   if(sameFeedback&&record.feedbackCorrected&&record.feedbackCorrectionId===correction.correctionId)return record;
+   changedHistory=true;
+   return {...record,feedback:correction.correctedFeedback,feedbackCorrected:true,correctedAt,feedbackCorrectionId:correction.correctionId};
+ });
+ // Reconcile the saved score ledger as well, so a correction still applies if the essay
+ // has moved out of the most recent 100 history records or the user cleared visible history.
+ if(lessonProgress&&typeof lessonProgress==="object"){
+   const next={...lessonProgress};
+   for(const [lessonId,raw] of Object.entries(next)){
+     const entry=normalizeLessonProgressEntry(raw);
+     entry.scoredAttempts=entry.scoredAttempts.map(attempt=>{
+       const correction=byRecord.get(String(attempt.recordId));
+       if(!correction||!correction.correctedFeedback||typeof correction.correctedFeedback!=="object")return attempt;
+       const score=lessonScoreNumber(correction.correctedFeedback.overall_band);
+       if(score===null)return attempt;
+       if(attempt.score===score&&attempt.corrected)return attempt;
+       changedProgress=true;
+       return {...attempt,score,corrected:true,date:attempt.date||new Date(Number(correction.createdAt||0)*1000).toISOString()};
+     });
+     next[lessonId]=entry;
+   }
+   if(changedProgress)lessonProgress=next;
+ }
+ const rebuilt=rebuildLessonProgressFromHistory();
+ if(changedHistory||changedProgress||rebuilt){
+   try{
+     clearTimeout(syncTimer);
+     localStorage.setItem(STORAGE.history,JSON.stringify(history));
+     localStorage.setItem("draftwise.lessonProgress.v1",JSON.stringify(lessonProgress));
+     await api("/api/state",{method:"PUT",body:JSON.stringify({state:stateSnapshot()})});
+   }catch{}
+ }
+ return changedHistory||changedProgress||rebuilt;
+}
 function renderLibrary(){
  const root=$("libraryList");if(!root)return;root.innerHTML="";
  // Avoid the stale built-in snapshot flashing before deleted/edited overrides arrive.
@@ -546,7 +667,7 @@ function renderLibrary(){
  const local=document.createElement("section");local.className="library-section";local.innerHTML='<div class="library-section-heading"><div><div class="eyebrow">PRACTICE INSIDE THE APP</div><h2>Bài mẫu và đề đã lưu</h2><p>Bài DOL tích hợp là trích đoạn có nguồn và bản dịch; đề tự nhập được lưu riêng theo tài khoản hoặc dùng chung nếu do admin xuất bản.</p></div><span class="library-count">'+lessons.length+' bài</span></div>';
  if(!lessons.length)local.insertAdjacentHTML("beforeend",'<div class="empty-state">Không tìm thấy bài phù hợp.</div>');
  const grid=document.createElement("div");grid.className="library-grid";
- lessons.forEach(l=>{const card=document.createElement("article");card.className="library-card";const sourceLabel=l.sourceType==="dol"?"DOL · trích đoạn":l.publishedGlobal?"Đề dùng chung":l.custom?"Đề riêng tài khoản":l.sourceType==="official-format"?"Format tham khảo":"Nguồn tham khảo";card.innerHTML=`<div class="library-card-top"><span class="tag dark">${escapeHtml(l.task.toUpperCase())}</span><span class="tag">${escapeHtml(l.type)}</span><span class="source-label">${escapeHtml(sourceLabel)}</span></div><h3>${escapeHtml(l.title)}</h3><p>${escapeHtml(l.question)}</p><div class="library-card-footer"><span>${escapeHtml(l.topic)} · ${l.essay.length} câu · ${l.time} phút</span><button class="button primary" data-open-lesson="${escapeHtml(l.id)}">Luyện bài này →</button></div><p class="lesson-source-note"><a href="${escapeHtml(l.sourceUrl||'#')}" target="_blank" rel="noopener noreferrer">${l.sourceType==="dol"?"Mở bài gốc trên DOL ↗":"Mở nguồn ↗"}</a>${l.sourceType==="dol"?" · Bản tích hợp là trích đoạn, không phải toàn bài.":""}</p>`;grid.appendChild(card)});
+ lessons.forEach(l=>{const card=document.createElement("article");card.className="library-card";const sourceLabel=l.sourceType==="dol"?"DOL · trích đoạn":l.publishedGlobal?"Đề dùng chung":l.custom?"Đề riêng tài khoản":l.sourceType==="official-format"?"Format tham khảo":"Nguồn tham khảo";card.innerHTML=`<div class="library-card-top"><span class="tag dark">${escapeHtml(l.task.toUpperCase())}</span><span class="tag">${escapeHtml(l.type)}</span><span class="source-label">${escapeHtml(sourceLabel)}</span>${lessonProgressTags(l)}</div><h3>${escapeHtml(l.title)}</h3><p>${escapeHtml(l.question)}</p><div class="library-card-footer"><span>${escapeHtml(l.topic)} · ${l.essay.length} câu · ${l.time} phút</span><button class="button primary" data-open-lesson="${escapeHtml(l.id)}">Luyện bài này →</button></div><p class="lesson-source-note"><a href="${escapeHtml(l.sourceUrl||'#')}" target="_blank" rel="noopener noreferrer">${l.sourceType==="dol"?"Mở bài gốc trên DOL ↗":"Mở nguồn ↗"}</a>${l.sourceType==="dol"?" · Bản tích hợp là trích đoạn, không phải toàn bài.":""}</p>`;grid.appendChild(card)});
  local.appendChild(grid);root.appendChild(local);
  if(sourceFilter==="all"||sourceFilter==="dol"){
  const fetchedSection=document.createElement("section");fetchedSection.className="library-section";
@@ -998,11 +1119,12 @@ $("accountForm").addEventListener("submit",async e=>{e.preventDefault();if(curre
   if(!applyRemoteState(remote.state))resetAccountState();
   await migrateLegacyCustomLessonsIfNeeded(remote.state);
   if(!remote.state)await pushState();
+  await applySavedFeedbackCorrections();
   $("accountFeedback").textContent="Đăng nhập thành công. Dữ liệu đã được đồng bộ."; $("accountFeedback").classList.add("ok");
   renderAll();renderProfile();renderHistory();await loadServerLessons();updateSavedDraftUI();refreshAdminPanel();setTimeout(()=>{$("accountDialog").close();if(savedStudyDraft)resumeSavedStudyDraft();else showToast("Đã đăng nhập: "+currentUser.username);},650);
 }catch(err){$("accountFeedback").textContent=err.message;$("accountFeedback").classList.remove("ok")}finally{$("accountSubmitButton").disabled=false}});
 $("accountLogoutButton").addEventListener("click",async()=>{try{await pushState()}catch{}try{await api("/api/logout",{method:"POST",body:"{}"})}catch{}currentUser=null;customLessons=[];resetAccountState();refreshAdminPanel();renderLibrary();$("accountDialog").close();$("accountFeedback").textContent="";$("accountFeedback").classList.remove("ok");renderProfile();updateSavedDraftUI();showToast("Đã đăng xuất. Bản nháp đã lưu vẫn được giữ trong tài khoản.")});
-async function checkSession(){try{const result=await api("/api/me");if(result.authenticated){currentUser=result.user;const remote=await api("/api/state");if(remote.state)applyRemoteState(remote.state);else resetAccountState();await migrateLegacyCustomLessonsIfNeeded(remote.state);if(!remote.state)await pushState();renderAll();renderProfile();await loadServerLessons();updateSavedDraftUI();refreshAdminPanel();if(savedStudyDraft)resumeSavedStudyDraft()}}catch{}}
+async function checkSession(){try{const result=await api("/api/me");if(result.authenticated){currentUser=result.user;const remote=await api("/api/state");if(remote.state)applyRemoteState(remote.state);else resetAccountState();await migrateLegacyCustomLessonsIfNeeded(remote.state);if(!remote.state)await pushState();await applySavedFeedbackCorrections();renderAll();renderProfile();await loadServerLessons();renderLibrary();updateSavedDraftUI();refreshAdminPanel();if(savedStudyDraft)resumeSavedStudyDraft()}}catch{}}
 
 function openProfile(){$("nameInput").value=profile.name==="Người học"?"":profile.name;$("profileDialog").showModal()}
 $("saveProfileButton").addEventListener("click",e=>{e.preventDefault();profile.name=$("nameInput").value.trim()||"Người học";write(STORAGE.profile,profile);renderProfile();$("profileDialog").close();showToast("Đã lưu tên hồ sơ trên trình duyệt.")});

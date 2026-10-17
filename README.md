@@ -1,4 +1,4 @@
-# WriteWiser v32 — Dashboard, quản lý lịch sử và cổng mật khẩu có thể cuộn
+# WriteWiser v33 — Thẻ tiến độ và điểm cao nhất theo từng đề
 
 Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để triển khai nhiều người dùng trên hosting từ xa.
 
@@ -245,3 +245,10 @@ The backend sets a descriptive `User-Agent` for OpenAI-compatible providers. `WR
 - The leaderboard shows username, average overall band by task and count of scored submissions only. It does not expose essay text or AI feedback; accounts with the `admin` role are excluded. All signed-in users can see this aggregate leaderboard.
 - Dashboard aggregation reads existing `user_state` JSON; no SQL schema migration is needed. Existing Render environment variables and database should be preserved.
 - To deploy, update the current GitHub repository with the files from this release, commit and push, then wait for Render. Do not recreate Supabase.
+
+
+## v33 — Trạng thái bài làm trong thư viện
+- Mỗi đề trong thư viện có thẻ trạng thái theo lịch sử của tài khoản đang đăng nhập: Chưa làm, Đã làm, hoặc Overall Band cao nhất đã đạt.
+- Nếu lượt đạt điểm cao nhất đã được hiệu chỉnh, thẻ hiển thị “Đã hiệu chỉnh · cao nhất X.X”. Nếu bài có hiệu chỉnh nhưng một lượt khác vẫn là điểm cao nhất, giao diện hiển thị điểm cao nhất và thêm thẻ “Có hiệu chỉnh”.
+- Điểm chỉ lấy từ lượt Tự viết có kết quả AI và `lessonId` tương ứng; bài dịch ngược được đánh dấu đã làm nhưng không gán Overall Band nếu không có điểm hợp lệ.
+- Hiệu chỉnh điểm được khôi phục từ bảng `feedback_corrections` riêng của tài khoản và đồng bộ vào `user_state`; không chia sẻ hiệu chỉnh riêng giữa các tài khoản.

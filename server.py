@@ -975,7 +975,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "32-dashboard-history-scroll", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "33-library-progress-tags", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -993,6 +993,22 @@ class Handler(SimpleHTTPRequestHandler):
                 if not admin:return
                 with db() as c: rows=c.execute("SELECT fc.id,fc.payload_json,fc.status,fc.created_at,u.username FROM feedback_corrections fc JOIN users u ON u.id=fc.user_id ORDER BY fc.created_at DESC LIMIT 100").fetchall()
                 return self.send_json(200,{"items":[{"id":r["id"],"payload":json.loads(r["payload_json"]),"status":r["status"],"createdAt":r["created_at"],"username":r["username"]} for r in rows]})
+            if path == "/api/feedback-corrections/mine":
+                user=self.session_user()
+                if not user:return self.send_json(401,{"error":"Bạn cần đăng nhập."})
+                with db() as c:
+                    rows=c.execute("SELECT id,payload_json,created_at FROM feedback_corrections WHERE user_id=? ORDER BY created_at ASC",(user["id"],)).fetchall()
+                # Return only correction data needed to restore this account's score tags.
+                # Never expose another user's essay or corrections.
+                latest={}
+                for row in rows:
+                    try: payload=json.loads(row["payload_json"])
+                    except Exception: continue
+                    record_id=payload.get("recordId") if isinstance(payload,dict) else None
+                    corrected=payload.get("corrected_feedback") if isinstance(payload,dict) else None
+                    if record_id is None or not isinstance(corrected,dict): continue
+                    latest[str(record_id)]={"recordId":str(record_id),"correctedFeedback":corrected,"createdAt":int(row["created_at"]),"correctionId":row["id"]}
+                return self.send_json(200,{"items":list(latest.values())})
             if path == "/api/scoring-resources":
                 rubric_data, references = load_scoring_resources()
                 try:
@@ -1609,7 +1625,26 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
         if not isinstance(state, dict):
             return self.send_json(400, {"error": "Thiếu dữ liệu học tập hợp lệ."})
         # Keep storage bounded and accept only expected top-level fields.
-        state = {k: state.get(k) for k in ("profile", "answers", "lessonAnswers", "independentDrafts", "brainstormDrafts", "currentLessonId", "history", "mistakes", "customLessons", "studyDraft") if k in state}
+        state = {k: state.get(k) for k in ("profile", "answers", "lessonAnswers", "independentDrafts", "brainstormDrafts", "currentLessonId", "history", "lessonProgress", "mistakes", "customLessons", "studyDraft") if k in state}
+        progress = state.get("lessonProgress")
+        if isinstance(progress, dict):
+            clean_progress = {}
+            for lesson_id, entry in list(progress.items())[:2000]:
+                if not isinstance(lesson_id, str) or not lesson_id or len(lesson_id) > 200 or not isinstance(entry, dict): continue
+                attempts = entry.get("scoredAttempts", [])
+                clean_attempts = []
+                if isinstance(attempts, list):
+                    for attempt in attempts[-1000:]:
+                        if not isinstance(attempt, dict): continue
+                        record_id = str(attempt.get("recordId", ""))[:80]
+                        try: score = float(attempt.get("score"))
+                        except (TypeError, ValueError): continue
+                        if not record_id or not 0 <= score <= 9: continue
+                        clean_attempts.append({"recordId": record_id, "score": score, "corrected": bool(attempt.get("corrected", False)), "date": str(attempt.get("date", ""))[:40]})
+                clean_progress[lesson_id] = {"attempted": bool(entry.get("attempted", False)), "scoredAttempts": clean_attempts, "lastAttemptAt": str(entry.get("lastAttemptAt", ""))[:40]}
+            state["lessonProgress"] = clean_progress
+        else:
+            state["lessonProgress"] = {}
         # Keep only small, non-sensitive resume metadata; all draft contents remain
         # in the account-scoped user_state payload above.
         draft = state.get("studyDraft")
@@ -1651,11 +1686,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v32 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v33 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v30.")
+        print("\nStopping WriteWiser v33.")
     finally:
         server.server_close()
 
