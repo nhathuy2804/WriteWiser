@@ -277,3 +277,13 @@ dialog[open]{z-index:10010}dialog.dialog-fallback-open{position:fixed;inset:50% 
 .lesson-progress-tag.corrected,.lesson-progress-tag.corrected-note{background:#f6e9d7;color:#805328;border-color:#e9d2b5}
 .library-card-top .lesson-progress-tag{margin-left:auto}
 @media(max-width:560px){.library-card-top .lesson-progress-tag{margin-left:0}.lesson-progress-tag{font-size:10px}}
+
+/* v34: visible, crawlable public summary for SEO-friendly app routes */
+.gate-seo-summary{width:min(100%,560px);margin:20px auto 0;padding:17px 18px 15px;border-top:1px solid rgba(88,68,53,.14);text-align:left;color:#65564b}
+.gate-seo-summary .seo-kicker{font-size:9px;font-weight:800;letter-spacing:1.2px;color:#8a715e;margin-bottom:5px}
+.gate-seo-summary h2{font-size:16px;line-height:1.35;margin:0 0 7px;color:#403229;letter-spacing:-.2px}
+.gate-seo-summary p{font-size:11px;line-height:1.65;margin:0 0 9px;color:#68594e}
+.gate-seo-summary .seo-links{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:8px}
+.gate-seo-summary .seo-links a{font-size:10px;color:#70513d;text-decoration:underline;text-underline-offset:3px}
+.gate-seo-summary .seo-points{margin:7px 0 0;padding-left:17px;font-size:10px;line-height:1.6}
+@media(max-width:520px){.gate-seo-summary{padding:15px 4px 8px}.gate-seo-summary h2{font-size:15px}}

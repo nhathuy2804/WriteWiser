@@ -10,6 +10,80 @@ import threading
 
 BASE = Path(__file__).resolve().parent
 DB_PATH = BASE / "draftwise.sqlite3"
+
+# Public, crawlable landing routes. Account/history/admin screens remain noindex
+# and are deliberately excluded from the sitemap.
+SEO_PAGES = {
+    "/": {
+        "view": "practice", "mode": "reverse", "title": "WriteWiser – Luyện IELTS Writing miễn phí, AI chấm Writing",
+        "description": "WriteWiser hỗ trợ luyện IELTS Writing miễn phí với thư viện đề, luyện dịch ngược Anh–Việt, tự viết bài và nhận phản hồi AI theo 4 tiêu chí IELTS.",
+        "heading": "Luyện IELTS Writing miễn phí cùng WriteWiser",
+        "summary": "WriteWiser là không gian luyện IELTS Writing với thư viện đề, dịch ngược từng câu, chế độ tự viết, Brainstorm và phản hồi AI dựa trên các tiêu chí Task Achievement/Response, Coherence and Cohesion, Lexical Resource và Grammatical Range and Accuracy.",
+        "bullets": ["Luyện dịch ngược từng câu để chủ động diễn đạt bằng tiếng Anh.", "Tự viết Task 1 và Task 2, nhận phản hồi AI để biết điểm mạnh và lỗi cần ưu tiên.", "Dùng Brainstorm để phát triển ý trước khi viết bài hoàn chỉnh."],
+        "index": True,
+    },
+    "/thu-vien-de-ielts-writing": {
+        "view": "library", "mode": "reverse", "title": "Thư viện đề IELTS Writing miễn phí | WriteWiser",
+        "description": "Khám phá thư viện đề IELTS Writing Task 1 và Task 2 của WriteWiser. Tìm đề theo dạng bài, chủ đề và nguồn; luyện dịch ngược hoặc tự viết.",
+        "heading": "Thư viện đề IELTS Writing Task 1 và Task 2",
+        "summary": "Thư viện đề WriteWiser giúp người học tìm bài luyện IELTS Writing theo Task 1, Task 2, dạng câu hỏi và chủ đề. Bạn có thể luyện dịch ngược từng câu hoặc chuyển sang chế độ tự viết. Các liên kết bài mẫu bên ngoài dẫn về nguồn gốc để người học kiểm tra nội dung đầy đủ.",
+        "bullets": ["Task 1: biểu đồ đường, cột, tròn, bảng, quy trình, bản đồ và biểu đồ kết hợp.", "Task 2: Opinion, Discussion, Advantages/Disadvantages, Causes/Solutions và Two-part Question.", "Lọc danh mục theo Task, dạng bài, chủ đề và nguồn tham khảo."],
+        "index": True,
+    },
+    "/luyen-dich-nguoc-tieng-anh": {
+        "view": "practice", "mode": "reverse", "title": "Luyện dịch ngược Anh–Việt cho IELTS Writing | WriteWiser",
+        "description": "Luyện dịch ngược IELTS Writing với WriteWiser: đọc ý tiếng Việt, tự viết lại câu tiếng Anh, nhận gợi ý sửa và theo dõi tiến độ từng câu.",
+        "heading": "Luyện dịch ngược tiếng Anh cho IELTS Writing",
+        "summary": "Chế độ luyện dịch ngược của WriteWiser hiển thị bản dịch tiếng Việt theo từng câu để bạn tự diễn đạt lại bằng tiếng Anh. Người học có thể chọn câu đang luyện, lưu tiến độ và yêu cầu AI nhận xét câu về ý nghĩa, ngữ pháp, collocation và độ tự nhiên.",
+        "bullets": ["Tập trung vào từng câu thay vì chỉ chép lại cả bài mẫu.", "Đối chiếu câu tự viết với ý gốc và xem gợi ý cải thiện.", "Phù hợp để luyện cách diễn đạt, cấu trúc câu và vốn từ học thuật."],
+        "index": True,
+    },
+    "/ai-cham-ielts-writing": {
+        "view": "practice", "mode": "independent", "title": "AI chấm IELTS Writing miễn phí – góp ý theo 4 tiêu chí | WriteWiser",
+        "description": "Dùng WriteWiser để nhận phản hồi AI cho IELTS Writing Task 1 và Task 2, kèm ước lượng band, phân tích từng tiêu chí và đề xuất sửa bài.",
+        "heading": "AI chấm IELTS Writing Task 1 và Task 2",
+        "summary": "WriteWiser hỗ trợ nhận xét bài Writing theo bốn tiêu chí thường dùng trong IELTS Writing: Task Achievement/Task Response, Coherence and Cohesion, Lexical Resource và Grammatical Range and Accuracy. Phản hồi tập trung vào dẫn chứng từ bài viết, lỗi cần ưu tiên và cách nâng cấp câu/đoạn; điểm AI là ước lượng học tập, không phải kết quả chính thức từ IELTS.",
+        "bullets": ["Phân tích riêng bốn tiêu chí thay vì chỉ đưa một điểm tổng.", "Nêu dẫn chứng, vấn đề cần cải thiện và gợi ý sửa cụ thể.", "Dùng phản hồi để xác định bước luyện tiếp theo cho Task 1 hoặc Task 2."],
+        "index": True,
+    },
+    "/luyen-brainstorm-ielts-writing": {
+        "view": "practice", "mode": "reverse", "brainstorm": True, "title": "Luyện Brainstorm IELTS Writing – phát triển ý trước khi viết | WriteWiser",
+        "description": "Luyện Brainstorm IELTS Writing bằng mindmap: phát triển Idea, Explain, Example hoặc Explain 2 cho hai đoạn thân bài trước khi viết.",
+        "heading": "Luyện Brainstorm IELTS Writing bằng mindmap",
+        "summary": "Công cụ Brainstorm của WriteWiser giúp tổ chức ý tưởng cho IELTS Writing Task 2 theo cấu trúc từng đoạn thân bài. Người học phát triển Idea, Explain và Example hoặc Explain 2, sau đó có thể yêu cầu AI rà soát mức độ rõ ràng, liên quan và cách phát triển lập luận trước khi bắt đầu viết.",
+        "bullets": ["Tách luận điểm và phần giải thích để tránh nêu ý quá ngắn.", "Phát triển từng ý bằng ví dụ hoặc một bước giải thích bổ sung.", "Nhận góp ý để hoàn thiện dàn ý trước khi viết bài hoàn chỉnh."],
+        "index": True,
+    },
+    "/lich-su-bai-lam": {
+        "view": "history", "title": "Lịch sử bài làm cá nhân | WriteWiser", "description": "Xem lịch sử luyện IELTS Writing và các phản hồi đã lưu trong tài khoản WriteWiser.", "heading": "Lịch sử bài làm cá nhân", "summary": "Khu vực riêng tư để xem bài làm và phản hồi đã lưu.", "bullets": [], "index": False,
+    },
+    "/dashboard-hoc-tap": {
+        "view": "dashboard", "title": "Dashboard học tập cá nhân | WriteWiser", "description": "Theo dõi tiến độ và thống kê luyện IELTS Writing trong tài khoản WriteWiser.", "heading": "Dashboard học tập cá nhân", "summary": "Khu vực thống kê riêng của người học.", "bullets": [], "index": False,
+    },
+    "/so-tay-loi-sai": {
+        "view": "mistakes", "title": "Sổ tay lỗi sai cá nhân | WriteWiser", "description": "Ôn tập các lỗi thường gặp đã lưu trong quá trình luyện IELTS Writing trên WriteWiser.", "heading": "Sổ tay lỗi sai cá nhân", "summary": "Khu vực ôn tập riêng của tài khoản.", "bullets": [], "index": False,
+    },
+    "/cai-dat-tai-khoan": {
+        "view": "settings", "title": "Cài đặt tài khoản | WriteWiser", "description": "Quản lý cài đặt tài khoản WriteWiser.", "heading": "Cài đặt tài khoản", "summary": "Khu vực riêng tư của tài khoản.", "bullets": [], "index": False,
+    },
+    "/quan-ly-de-cua-toi": {
+        "view": "personalLessons", "title": "Quản lý đề riêng | WriteWiser", "description": "Quản lý bộ đề IELTS Writing đã lưu trong tài khoản WriteWiser.", "heading": "Quản lý đề riêng", "summary": "Khu vực riêng tư của tài khoản.", "bullets": [], "index": False,
+    },
+    "/quan-ly-thu-vien": {
+        "view": "adminLessons", "title": "Quản lý thư viện | WriteWiser", "description": "Khu vực quản trị thư viện WriteWiser.", "heading": "Quản lý thư viện", "summary": "Khu vực quản trị; không dành cho lập chỉ mục công khai.", "bullets": [], "index": False,
+    },
+    "/bao-mat-web": {
+        "view": "adminSettings", "title": "Bảo mật website | WriteWiser", "description": "Khu vực quản trị bảo mật WriteWiser.", "heading": "Bảo mật website", "summary": "Khu vực quản trị; không dành cho lập chỉ mục công khai.", "bullets": [], "index": False,
+    },
+}
+PUBLIC_SITEMAP_PATHS = ["/", "/thu-vien-de-ielts-writing", "/luyen-dich-nguoc-tieng-anh", "/ai-cham-ielts-writing", "/luyen-brainstorm-ielts-writing"]
+SEO_NAV_LINKS = [
+    ("Thư viện đề IELTS Writing", "/thu-vien-de-ielts-writing"),
+    ("Luyện dịch ngược Anh–Việt", "/luyen-dich-nguoc-tieng-anh"),
+    ("AI chấm IELTS Writing", "/ai-cham-ielts-writing"),
+    ("Luyện Brainstorm IELTS Writing", "/luyen-brainstorm-ielts-writing"),
+]
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 HOST = os.environ.get("DRAFTWISE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8000"))
@@ -950,8 +1024,111 @@ class Handler(SimpleHTTPRequestHandler):
         lesson["createdAt"] = lesson.get("createdAt") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         return lesson
 
+    def public_origin(self):
+        configured_base = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+        if configured_base:
+            parsed_base = urlparse(configured_base)
+            if parsed_base.scheme in ("http", "https") and parsed_base.netloc and not parsed_base.username and not parsed_base.password:
+                return f"{parsed_base.scheme}://{parsed_base.netloc}"
+        host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "localhost:8000").split(",")[0].strip()
+        if not re.fullmatch(r"[A-Za-z0-9.\-\[\]:]+", host):
+            host = "localhost:8000"
+        proto = (self.headers.get("X-Forwarded-Proto") or ("http" if host.startswith(("localhost", "127.0.0.1")) else "https")).split(",")[0].strip().lower()
+        if proto not in ("http", "https"):
+            proto = "https"
+        return f"{proto}://{host}"
+
+    def build_sitemap(self):
+        origin = self.public_origin()
+        urls = "\n".join(f"  <url><loc>{html.escape(origin + p, quote=True)}</loc></url>" for p in PUBLIC_SITEMAP_PATHS)
+        return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + "\n</urlset>\n"
+
+    def send_text_response(self, status, content_type, body, cache="public, max-age=300"):
+        raw = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", cache)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def render_seo_gate_content(self, page):
+        heading = html.escape(page.get("heading", "WriteWiser"))
+        summary = html.escape(page.get("summary", ""))
+        bullets = page.get("bullets", [])
+        bullet_html = "" if not bullets else "<ul class=\"seo-points\">" + "".join(f"<li>{html.escape(x)}</li>" for x in bullets) + "</ul>"
+        links = "<nav class=\"seo-links\" aria-label=\"Các tính năng WriteWiser\">" + "".join(f'<a href="{html.escape(path, quote=True)}">{html.escape(label)}</a>' for label,path in SEO_NAV_LINKS if path != self.clean_route_path()) + "</nav>"
+        return f'<div class="seo-kicker">WRITEWISER · IELTS WRITING</div><h2>{heading}</h2><p>{summary}</p>{bullet_html}{links}'
+
+    def clean_route_path(self):
+        path = urlparse(self.path).path
+        if path == "/index.html": return "/"
+        return path.rstrip("/") or "/"
+
+    def render_main_html(self, route_path):
+        page_file = BASE / "index.html"
+        try:
+            page_html = page_file.read_text(encoding="utf-8")
+        except OSError:
+            return self.send_error(404, "Page not found")
+        origin = self.public_origin()
+        route_path = "/" if route_path == "/index.html" else route_path
+        page = SEO_PAGES.get(route_path, SEO_PAGES["/"])
+        canonical_path = route_path if route_path in SEO_PAGES else "/"
+        canonical_url = html.escape(origin + canonical_path, quote=True)
+        image_url = html.escape(origin + "/assets/og-image-v30.png", quote=True)
+        title = html.escape(page["title"], quote=True)
+        description = html.escape(page["description"], quote=True)
+        robots = "index,follow,max-image-preview:large" if page.get("index") else "noindex,nofollow"
+        graph = {
+            "@context": "https://schema.org",
+            "@graph": [
+                {"@type": "WebSite", "@id": origin + "/#website", "url": origin + "/", "name": "WriteWiser", "inLanguage": "vi-VN", "description": SEO_PAGES["/"]["description"]},
+                {"@type": "WebPage", "@id": canonical_url + "#webpage", "url": origin + canonical_path, "name": page["title"], "description": page["description"], "inLanguage": "vi-VN", "isPartOf": {"@id": origin + "/#website"}},
+            ]
+        }
+        if route_path == "/":
+            graph["@graph"].append({"@type": "SoftwareApplication", "@id": origin + "/#app", "name": "WriteWiser", "url": origin + "/", "applicationCategory": "EducationalApplication", "operatingSystem": "Web", "inLanguage": "vi-VN", "description": SEO_PAGES["/"]["description"], "offers": {"@type": "Offer", "price": "0", "priceCurrency": "VND"}})
+        jsonld = json.dumps(graph, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        page_html = page_html.replace("__WW_PUBLIC_URL__", canonical_url).replace("__WW_OG_IMAGE_URL__", image_url)
+        page_html = page_html.replace("__WW_SEO_TITLE__", title).replace("__WW_SEO_DESCRIPTION__", description)
+        page_html = page_html.replace("__WW_SEO_H1__", html.escape(page.get("heading", "Không gian học tập riêng tư.")))
+        page_html = page_html.replace("__WW_SEO_JSONLD__", jsonld).replace("__WW_SEO_GATE_CONTENT__", self.render_seo_gate_content(page))
+        page_html = page_html.replace('<meta name="robots" content="index,follow">', f'<meta name="robots" content="{robots}">')
+        raw = page_html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if not page.get("index"):
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
+        self.end_headers()
+        self.wfile.write(raw)
+
     def do_GET(self):
         path = urlparse(self.path).path
+        # Do not let the static-file fallback expose backend/database/config files.
+        blocked_names = {"draftwise.sqlite3", "server.py", "providers.env.example", "render.yaml", "README.md", "requirements.txt", "migrate_sqlite_to_postgres.py", ".gitignore", ".env"}
+        if path.startswith("/resources/") or path.startswith("/.git/") or path.rsplit("/", 1)[-1] in blocked_names or path.startswith("/draftwise.sqlite3"):
+            return self.send_error(404, "Not found")
+        if path != "/" and path.endswith("/") and path[:-1] in SEO_PAGES:
+            self.send_response(301)
+            self.send_header("Location", path[:-1])
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            return
+        if path == "/robots.txt":
+            origin = self.public_origin()
+            body = "User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /draftwise.sqlite3\n\nSitemap: " + origin + "/sitemap.xml\n"
+            return self.send_text_response(200, "text/plain; charset=utf-8", body)
+        if path == "/sitemap.xml":
+            return self.send_text_response(200, "application/xml; charset=utf-8", self.build_sitemap())
+        # Friendly paths are served by the same SPA shell but contain distinct,
+        # server-rendered metadata and crawlable public summaries.
+        if path in SEO_PAGES or path == "/index.html":
+            return self.render_main_html(path)
         public_gate_paths = {"/api/health", "/api/gate/status"}
         if path.startswith("/api/") and path not in public_gate_paths and not self.gate_user():
             return self.send_json(423, {"error": "Nhập mật khẩu truy cập chung để mở WriteWiser."})
@@ -975,7 +1152,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "33-library-progress-tags", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "34-seo-routes", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -1081,39 +1258,23 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             return
-        # Facebook/Open Graph crawlers need absolute URLs in the raw HTML.
-        # Render's host may differ between deployments, so derive the public origin
-        # from PUBLIC_BASE_URL (preferred) or the reverse-proxy request headers.
-        if path in ("/", "/index.html", "/calibration.html"):
-            page_file = BASE / ("calibration.html" if path == "/calibration.html" else "index.html")
+        # Calibration remains a private tool and is served only to users with a valid gate session.
+        if path == "/calibration.html":
+            page_file = BASE / "calibration.html"
             try:
                 page_html = page_file.read_text(encoding="utf-8")
             except OSError:
                 return self.send_error(404, "Page not found")
-            configured_base = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
-            origin = ""
-            if configured_base:
-                parsed_base = urlparse(configured_base)
-                if parsed_base.scheme in ("http", "https") and parsed_base.netloc and not parsed_base.username and not parsed_base.password:
-                    origin = f"{parsed_base.scheme}://{parsed_base.netloc}"
-            if not origin:
-                host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "localhost:8000").split(",")[0].strip()
-                if not re.fullmatch(r"[A-Za-z0-9.\-\[\]:]+", host):
-                    host = "localhost:8000"
-                proto = (self.headers.get("X-Forwarded-Proto") or ("http" if host.startswith(("localhost", "127.0.0.1")) else "https")).split(",")[0].strip().lower()
-                if proto not in ("http", "https"):
-                    proto = "https"
-                origin = f"{proto}://{host}"
-            public_path = "/calibration.html" if path == "/calibration.html" else "/"
-            public_url = html.escape(origin + public_path, quote=True)
+            origin = self.public_origin()
+            public_url = html.escape(origin + "/calibration.html", quote=True)
             image_url = html.escape(origin + "/assets/og-image-v30.png", quote=True)
             page_html = page_html.replace("__WW_PUBLIC_URL__", public_url).replace("__WW_OG_IMAGE_URL__", image_url)
             raw = page_html.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(raw)))
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(raw)
             return
@@ -1686,11 +1847,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v33 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v34 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v33.")
+        print("\nStopping WriteWiser v34.")
     finally:
         server.server_close()
 

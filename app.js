@@ -136,6 +136,30 @@ let dolFetchedLinks = read("draftwise.dolFetchedLinks.v1", []);
 let currentLesson = LESSONS[0];
 let ESSAY = currentLesson.essay;
 const $ = id => document.getElementById(id);
+
+// v34: friendly URLs for each SPA screen. Public feature URLs are also included
+// in sitemap.xml; account-specific areas are noindex and excluded from the sitemap.
+const WW_ROUTE_CONFIG = {
+  "/": {view:"practice",mode:"reverse",title:"WriteWiser – Luyện IELTS Writing miễn phí, AI chấm Writing",description:"WriteWiser hỗ trợ luyện IELTS Writing miễn phí với thư viện đề, luyện dịch ngược Anh–Việt, tự viết bài và nhận phản hồi AI theo 4 tiêu chí IELTS.",index:true},
+  "/thu-vien-de-ielts-writing": {view:"library",title:"Thư viện đề IELTS Writing miễn phí | WriteWiser",description:"Khám phá thư viện đề IELTS Writing Task 1 và Task 2 của WriteWiser. Tìm đề theo dạng bài, chủ đề và nguồn; luyện dịch ngược hoặc tự viết.",index:true},
+  "/luyen-dich-nguoc-tieng-anh": {view:"practice",mode:"reverse",title:"Luyện dịch ngược Anh–Việt cho IELTS Writing | WriteWiser",description:"Luyện dịch ngược IELTS Writing với WriteWiser: đọc ý tiếng Việt, tự viết lại câu tiếng Anh, nhận gợi ý sửa và theo dõi tiến độ từng câu.",index:true},
+  "/ai-cham-ielts-writing": {view:"practice",mode:"independent",title:"AI chấm IELTS Writing miễn phí – góp ý theo 4 tiêu chí | WriteWiser",description:"Dùng WriteWiser để nhận phản hồi AI cho IELTS Writing Task 1 và Task 2, kèm ước lượng band, phân tích từng tiêu chí và đề xuất sửa bài.",index:true},
+  "/luyen-brainstorm-ielts-writing": {view:"practice",mode:"reverse",brainstorm:true,title:"Luyện Brainstorm IELTS Writing – phát triển ý trước khi viết | WriteWiser",description:"Luyện Brainstorm IELTS Writing bằng mindmap: phát triển Idea, Explain, Example hoặc Explain 2 cho hai đoạn thân bài trước khi viết.",index:true},
+  "/lich-su-bai-lam": {view:"history",title:"Lịch sử bài làm cá nhân | WriteWiser",description:"Xem lịch sử luyện IELTS Writing và các phản hồi đã lưu trong tài khoản WriteWiser.",index:false},
+  "/dashboard-hoc-tap": {view:"dashboard",title:"Dashboard học tập cá nhân | WriteWiser",description:"Theo dõi tiến độ và thống kê luyện IELTS Writing trong tài khoản WriteWiser.",index:false},
+  "/so-tay-loi-sai": {view:"mistakes",title:"Sổ tay lỗi sai cá nhân | WriteWiser",description:"Ôn tập các lỗi thường gặp đã lưu trong quá trình luyện IELTS Writing trên WriteWiser.",index:false},
+  "/cai-dat-tai-khoan": {view:"settings",title:"Cài đặt tài khoản | WriteWiser",description:"Quản lý cài đặt tài khoản WriteWiser.",index:false},
+  "/quan-ly-de-cua-toi": {view:"personalLessons",title:"Quản lý đề riêng | WriteWiser",description:"Quản lý bộ đề IELTS Writing đã lưu trong tài khoản WriteWiser.",index:false},
+  "/quan-ly-thu-vien": {view:"adminLessons",title:"Quản lý thư viện | WriteWiser",description:"Khu vực quản trị thư viện WriteWiser.",index:false},
+  "/bao-mat-web": {view:"adminSettings",title:"Bảo mật website | WriteWiser",description:"Khu vực quản trị bảo mật WriteWiser.",index:false}
+};
+const WW_VIEW_PATH = {library:"/thu-vien-de-ielts-writing",practice:"/luyen-dich-nguoc-tieng-anh",history:"/lich-su-bai-lam",dashboard:"/dashboard-hoc-tap",mistakes:"/so-tay-loi-sai",settings:"/cai-dat-tai-khoan",personalLessons:"/quan-ly-de-cua-toi",adminLessons:"/quan-ly-thu-vien",adminSettings:"/bao-mat-web"};
+function wwNormalizePath(path){const p=String(path||"/").split("?")[0].replace(/\/+$/,"");return p||"/";}
+function wwEnsureMeta(name,attribute="name"){let el=document.head.querySelector(`meta[${attribute}="${name}"]`);if(!el){el=document.createElement("meta");el.setAttribute(attribute,name);document.head.appendChild(el);}return el;}
+function wwApplyRouteMetadata(path=window.location.pathname){const route=WW_ROUTE_CONFIG[wwNormalizePath(path)]||WW_ROUTE_CONFIG["/"];document.title=route.title;wwEnsureMeta("description").setAttribute("content",route.description);wwEnsureMeta("robots").setAttribute("content",route.index?"index,follow,max-image-preview:large":"noindex,nofollow");let canonical=document.head.querySelector('link[rel="canonical"]');if(!canonical){canonical=document.createElement("link");canonical.rel="canonical";document.head.appendChild(canonical);}canonical.href=window.location.origin+wwNormalizePath(path);wwEnsureMeta("og:title","property").setAttribute("content",route.title);wwEnsureMeta("og:description","property").setAttribute("content",route.description);wwEnsureMeta("og:url","property").setAttribute("content",canonical.href);wwEnsureMeta("twitter:title").setAttribute("content",route.title);wwEnsureMeta("twitter:description").setAttribute("content",route.description);}
+function wwTargetPath(view){if(view==="practice"&&practiceMode==="independent")return "/ai-cham-ielts-writing";return WW_VIEW_PATH[view]||"/";}
+function wwSyncBrowserRoute(view,{replace=false}={}){const target=wwTargetPath(view);if(wwNormalizePath(window.location.pathname)!==target){if(replace)history.replaceState({writewiser:true},"",target);else history.pushState({writewiser:true},"",target);}wwApplyRouteMetadata(target);}
+function wwApplyRouteFromLocation(){const path=wwNormalizePath(window.location.pathname);const route=WW_ROUTE_CONFIG[path]||WW_ROUTE_CONFIG["/"];wwApplyRouteMetadata(path);switchView(route.view,{syncRoute:false});if(route.view==="practice"){switchPracticeMode(route.mode||"reverse",{syncRoute:false});if(route.brainstorm){const panel=$("brainstormPanel");if(panel){panel.hidden=false;renderBrainstorm();}}}}
 const STORAGE = {profile:"draftwise.profile.v1", answers:"draftwise.answers.v1", history:"draftwise.history.v1", mistakes:"draftwise.mistakes.v1", started:"draftwise.started.v1"};
 let active = 0, hintShown = false, timerStart = Date.now(), toastTimer, syncTimer = null;
 let practiceMode = "reverse", independentStart = Date.now();
@@ -304,7 +328,7 @@ $("checkSentenceButton")?.addEventListener("click",async()=>{
 });
 document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key==="Enter"&&$("practiceView").hidden===false){e.preventDefault();selectSentence(active===ESSAY.length-1?0:active+1)}});
 $("resetButton").addEventListener("click",()=>{if(confirm("Xóa toàn bộ câu trả lời hiện tại và bắt đầu lại?")){answers=Array(ESSAY.length).fill("");lessonAnswers[currentLesson.id]=answers;active=0;hintShown=false;write("draftwise.lessonAnswers.v1",lessonAnswers);write(STORAGE.answers,answers);$("resultPanel").hidden=true;renderAll();showToast("Đã tạo lượt luyện tập mới.")}});
-function switchView(view){
+function switchView(view,options={}){
   const views=["library","practice","history","dashboard","mistakes","settings","personalLessons","adminLessons","adminSettings"];
   views.forEach(v=>{const el=$(v+"View");if(el)el.hidden=v!==view;});
   document.querySelectorAll(".nav-item[data-view]").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
@@ -323,9 +347,10 @@ function switchView(view){
     if(!currentUser||currentUser.role!=="admin"){showToast("Trang này chỉ dành cho tài khoản admin.");switchView("library");return;}
     if(view==="adminLessons")renderAdminBuiltinLessons();
   }
+  if(options.syncRoute!==false)wwSyncBrowserRoute(view);
   window.scrollTo({top:0,behavior:"smooth"});
 }
-function switchPracticeMode(mode){
+function switchPracticeMode(mode,options={}){
   practiceMode=mode==="independent"?"independent":"reverse";
   const reverse=practiceMode==="reverse";
   $("reverseModePanel").hidden=!reverse;
@@ -351,6 +376,7 @@ function switchPracticeMode(mode){
   const heading=document.querySelector("#practiceView .page-heading h1");
   if(heading)heading.innerHTML=reverse?`Luyện viết, <em>${escapeHtml(currentLesson.title)}.</em>`:`Tự viết IELTS, <em>${escapeHtml(currentLesson.title)}.</em>`;
   const intro=document.querySelector("#practiceView .page-heading p");if(intro)intro.textContent=reverse?"Đọc toàn bộ bản dịch. Tự viết tiếng Anh. Chỉ xem kết quả khi bạn nộp cả bài.":"Không có bản dịch hoặc câu mẫu. Tự viết bài hoàn chỉnh rồi nộp để nhận phản hồi theo bốn tiêu chí IELTS.";
+  if(options.syncRoute!==false)wwSyncBrowserRoute("practice");
 }
 function updateIndependentMeta(){
   const text=$("independentEssayInput").value;
@@ -729,6 +755,7 @@ function startChosenLessonMode(choice){
 }
 // Static controls receive direct listeners, while lesson cards are dynamic and
 // use delegation. This avoids relying on capture-phase propagation inside <dialog>.
+window.addEventListener("popstate",()=>{wwApplyRouteMetadata(window.location.pathname);if(document.body.classList.contains("gate-open"))wwApplyRouteFromLocation();});
 document.querySelectorAll(".nav-item[data-view]").forEach(button=>button.addEventListener("click",event=>{
   event.preventDefault();switchView(button.dataset.view);
 }));
@@ -1061,10 +1088,10 @@ document.addEventListener("visibilitychange",()=>{
 
 async function bootAccessGate(){
  const form=$("accessGateForm"),button=$("gateUnlockButton");let serverReachable=false;
- try{const response=await fetch("/api/gate/status",{credentials:"same-origin"});if(!response.ok)throw new Error(`HTTP ${response.status}`);const status=await response.json();serverReachable=true;if(status.unlocked){revealApplication();await checkSession();if(libraryLoadState==="loading")await loadServerLessons();refreshAdminPanel();return;}}
+ try{const response=await fetch("/api/gate/status",{credentials:"same-origin"});if(!response.ok)throw new Error(`HTTP ${response.status}`);const status=await response.json();serverReachable=true;if(status.unlocked){revealApplication();await checkSession();if(libraryLoadState==="loading")await loadServerLessons();refreshAdminPanel();wwApplyRouteFromLocation();return;}}
  catch(err){console.warn("WriteWiser backend is not reachable:",err.message)}
  lockApplication(serverReachable?"Nhập mật khẩu truy cập chung để mở WriteWiser.":"Không kết nối được máy chủ WriteWiser. Hãy chạy run_writewiser.bat hoặc lệnh `python server.py`, sau đó mở http://127.0.0.1:8000. Không mở index.html trực tiếp và không dùng python -m http.server.");
- if(form&&!form.dataset.bound){form.dataset.bound="true";form.addEventListener("submit",async e=>{e.preventDefault();button.disabled=true;$("gateFeedback").textContent="Đang xác minh…";try{await api("/api/gate/unlock",{method:"POST",body:JSON.stringify({password:$("gatePasswordInput").value})});$("gatePasswordInput").value="";revealApplication();await checkSession();if(libraryLoadState==="loading")await loadServerLessons();refreshAdminPanel();renderAll();renderLibrary();$("gateFeedback").textContent="";}catch(err){$("gateFeedback").textContent=err.message+" · Hãy xác nhận bạn đã chạy server.py.";$("gatePasswordInput").focus()}finally{button.disabled=false}});}
+ if(form&&!form.dataset.bound){form.dataset.bound="true";form.addEventListener("submit",async e=>{e.preventDefault();button.disabled=true;$("gateFeedback").textContent="Đang xác minh…";try{await api("/api/gate/unlock",{method:"POST",body:JSON.stringify({password:$("gatePasswordInput").value})});$("gatePasswordInput").value="";revealApplication();await checkSession();if(libraryLoadState==="loading")await loadServerLessons();refreshAdminPanel();renderAll();renderLibrary();wwApplyRouteFromLocation();$("gateFeedback").textContent="";}catch(err){$("gateFeedback").textContent=err.message+" · Hãy xác nhận bạn đã chạy server.py.";$("gatePasswordInput").focus()}finally{button.disabled=false}});}
 }
 function renderHistory(){
   const root=$("historyList");root.innerHTML="";

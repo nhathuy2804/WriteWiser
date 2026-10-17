@@ -1,4 +1,4 @@
-# WriteWiser v33 — Thẻ tiến độ và điểm cao nhất theo từng đề
+# WriteWiser v34 — SEO routes & Google Search Console
 
 Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để triển khai nhiều người dùng trên hosting từ xa.
 
@@ -252,3 +252,23 @@ The backend sets a descriptive `User-Agent` for OpenAI-compatible providers. `WR
 - Nếu lượt đạt điểm cao nhất đã được hiệu chỉnh, thẻ hiển thị “Đã hiệu chỉnh · cao nhất X.X”. Nếu bài có hiệu chỉnh nhưng một lượt khác vẫn là điểm cao nhất, giao diện hiển thị điểm cao nhất và thêm thẻ “Có hiệu chỉnh”.
 - Điểm chỉ lấy từ lượt Tự viết có kết quả AI và `lessonId` tương ứng; bài dịch ngược được đánh dấu đã làm nhưng không gán Overall Band nếu không có điểm hợp lệ.
 - Hiệu chỉnh điểm được khôi phục từ bảng `feedback_corrections` riêng của tài khoản và đồng bộ vào `user_state`; không chia sẻ hiệu chỉnh riêng giữa các tài khoản.
+
+
+## v34 — SEO routes và Google Search Console
+
+- Mỗi màn hình có URL thân thiện; các trang công khai có title, description, canonical, Open Graph và JSON-LD được máy chủ kết xuất theo đường dẫn.
+- `GET /robots.txt` và `GET /sitemap.xml` được tạo tự động dựa trên `PUBLIC_BASE_URL` hoặc host/proxy hiện tại. Sitemap chỉ gồm các trang giới thiệu công khai; không đưa lịch sử, dashboard, cài đặt và khu vực quản trị vào sitemap.
+- Đã thêm meta xác minh Google Search Console vào HTML trang chủ. Sau khi deploy, mở trang chủ bằng trình duyệt hoặc View Source để xác nhận thẻ có mặt, rồi bấm Verify trong Search Console.
+- Nên đặt `PUBLIC_BASE_URL=https://ten-mien-chinh-cua-ban` trong Render Environment nếu website có domain riêng; giá trị phải là origin HTTPS thật, không có path ở cuối. Nếu chưa có domain riêng thì dùng URL Render chính thức của dịch vụ.
+- Gửi sitemap trong Search Console bằng URL đầy đủ `https://ten-mien-cua-ban/sitemap.xml`, sau đó dùng URL Inspection → Test Live URL và Request indexing cho trang chủ và các trang tính năng.
+- Không có cách bảo đảm thứ hạng hoặc gợi ý tự động cho các truy vấn cụ thể. Meta keywords không được Google Search sử dụng; hãy tập trung nội dung hữu ích, title/H1 rõ ràng, liên kết nội bộ, tốc độ/tính khả dụng và lượt đề cập/liên kết tự nhiên từ những nơi phù hợp.
+
+### URL công khai có trong sitemap
+
+- `/` — trang WriteWiser chính
+- `/thu-vien-de-ielts-writing` — thư viện đề
+- `/luyen-dich-nguoc-tieng-anh` — luyện dịch ngược
+- `/ai-cham-ielts-writing` — AI chấm Writing
+- `/luyen-brainstorm-ielts-writing` — luyện Brainstorm
+
+Các đường dẫn lịch sử, dashboard, sổ tay lỗi sai, cài đặt và quản trị vẫn dùng được khi vào ứng dụng nhưng được đánh dấu `noindex` và không đưa vào sitemap.
