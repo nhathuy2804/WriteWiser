@@ -30,7 +30,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png?v=34">
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon-180.png?v=34">
 <title>__WW_SEO_TITLE__</title>
-  <link rel="stylesheet" href="/styles.css?v=37">
+  <link rel="stylesheet" href="/styles.css?v=38">
   <script type="application/ld+json">__WW_SEO_JSONLD__</script>
 </head>
 <body class="gate-locked">
@@ -67,6 +67,7 @@
       <button class="nav-item" data-view="history"><span>◷</span> Lịch sử bài làm <span class="nav-count" id="historyCount">0</span></button>
       <button class="nav-item" data-view="dashboard"><span>▥</span> Dashboard</button>
       <button class="nav-item" data-view="mistakes"><span>⌁</span> Sổ tay lỗi sai</button>
+      <button class="nav-item" data-view="vocabularyNotes"><span>✧</span> Sổ tay ghi chú AI <span class="nav-count" id="vocabNotesCount">0</span></button>
       <button class="nav-item" data-view="settings"><span>⚙</span> Cài đặt tài khoản</button>
       <button class="nav-item" data-view="personalLessons" id="personalLessonsNav"><span>▤</span> Quản lý đề của tôi</button>
       <button class="nav-item" data-view="adminLessons" id="adminLessonsNav" hidden><span>▦</span> Quản lý thư viện</button>
@@ -75,7 +76,7 @@
       <div class="sidebar-bottom">
         <div class="local-note"><span class="status-dot"></span><div><strong>Đồng bộ tài khoản</strong><small>Bài làm và đề riêng lưu trên máy chủ</small></div></div>
         <button class="nav-item" id="exportButton"><span>↓</span> Xuất dữ liệu học tập</button>
-        <div class="sidebar-footer">v34 · nền tảng v13 · WriteWiser</div>
+        <div class="sidebar-footer">v38 · nền tảng v13 · WriteWiser</div>
       </div>
     </aside>
 
@@ -166,7 +167,9 @@
             <textarea id="answerInput" rows="5" placeholder="Start writing in English..." spellcheck="true"></textarea>
             <div class="input-meta"><span><span id="wordCount">0</span> từ</span><span>Đã lưu tự động</span></div>
             <div class="hint-box" id="hintBox" hidden><div class="hint-title">Gợi ý từ vựng & cấu trúc</div><p id="hintText"></p><small>Gợi ý không phải đáp án hoàn chỉnh.</small></div>
-            <div class="writing-controls"><button class="button secondary" id="hintButton">✧ Hiện gợi ý</button><button class="button secondary" id="checkSentenceButton">✦ AI chấm câu này</button><div class="control-spacer"></div><button class="button secondary" id="prevButton">← Trước</button><button class="button primary" id="nextButton">Câu tiếp →</button></div><div id="sentenceAiFeedback" class="sentence-ai-feedback" hidden></div>
+            <div class="writing-controls"><button class="button secondary" id="hintButton">✧ Hiện gợi ý</button><button class="button secondary" id="checkSentenceButton">✦ AI chấm câu này</button><div class="control-spacer"></div><button class="button secondary" id="prevButton">← Trước</button><button class="button primary" id="nextButton">Câu tiếp →</button></div>
+            <div class="note-save-row"><div><strong>Gặp cách diễn đạt hay?</strong><p>Bôi đen từ, cụm từ, vế câu hoặc câu rồi lưu thành ghi chú AI.</p></div><button type="button" class="button secondary" id="saveSelectedNoteButton">✦ Lưu đoạn bôi đen</button></div><p id="saveSelectedNoteStatus" class="import-status" role="status"></p>
+            <div id="sentenceAiFeedback" class="sentence-ai-feedback" hidden></div>
             <div class="keyboard-footnote">Mẹo: dùng <kbd>Ctrl</kbd> + <kbd>Enter</kbd> để chuyển câu.</div>
           </section>
         </div>
@@ -179,7 +182,9 @@
           <div class="independent-question"><span class="panel-kicker">ĐỀ BÀI</span><p id="independentQuestionText"></p><div class="independent-meta"><span id="independentTaskLabel">Writing Task 2</span><span id="independentTimeLabel">40 phút</span><span id="independentWordGuidance">Tối thiểu nên viết 250 từ</span></div></div>
           <label for="independentEssayInput" class="input-label">Bài viết của bạn</label>
           <textarea id="independentEssayInput" class="independent-essay-input" rows="20" placeholder="Viết bài IELTS Writing của bạn tại đây. Hãy tự lập luận và viết hoàn chỉnh, không cần dịch từng câu…"></textarea>
-          <div class="independent-editor-footer"><span><strong id="independentWordCount">0</strong> từ</span><span id="independentTimeSpent">Thời gian: 00:00</span><button type="button" class="text-button" id="clearIndependentButton">Xóa bài viết</button><button type="button" class="text-button" id="checkScoringPromptButton">Kiểm tra prompt chấm bài</button></div><p id="scoringPromptStatus" class="small" role="status"></p>
+          <div class="independent-editor-footer"><span><strong id="independentWordCount">0</strong> từ</span><span id="independentTimeSpent">Thời gian: 00:00</span><button type="button" class="text-button" id="clearIndependentButton">Xóa bài viết</button><button type="button" class="text-button" id="checkScoringPromptButton">Kiểm tra prompt chấm bài</button></div>
+          <div class="note-save-row"><div><strong>Lưu một điểm ngôn ngữ để ôn lại</strong><p>Bôi đen phần cần học trong bài viết, sau đó để AI tạo nghĩa, cách dùng và ví dụ.</p></div><button type="button" class="button secondary" id="saveIndependentNoteButton">✦ Tạo ghi chú AI</button></div><p id="saveIndependentNoteStatus" class="import-status" role="status"></p>
+          <p id="scoringPromptStatus" class="small" role="status"></p>
 
           <div class="brainstorm-action-row"><div><strong>Muốn lập dàn ý trước khi viết?</strong><p>Brainstorm chỉ khả dụng ở Practice. AI ưu tiên đánh giá mức độ liên quan, độ sâu và độ bao phủ ý theo TA/TR; chấp nhận ghi chú, viết tắt và cụm từ ngắn.</p></div><button type="button" id="brainstormOpenButton" class="button secondary">✦ Luyện Brainstorm</button></div>
           <section id="brainstormPanel" class="brainstorm-panel" hidden><div class="brainstorm-heading"><div><div class="eyebrow">IDEA DEVELOPMENT MAP</div><h2>Mindmap Brainstorm</h2><p>Đề bài được lấy tự động từ đề bạn đang luyện. Mỗi Idea gồm ý chính + Explain 1 bắt buộc + một lựa chọn: Example hoặc Explain 2. Có thể để cả Idea trống để AI gợi ý.</p></div><span class="tag dark">Practice only</span></div><div id="brainstormMindmap"></div><div class="brainstorm-submit-row"><div><strong>Rà soát ý tưởng bằng AI</strong><p>Ô trống sẽ được gợi ý; phần cần sửa được gạch đỏ và đề xuất viết lại ngay cạnh.</p></div><button type="button" id="brainstormSubmitButton" class="button primary">Nộp mindmap</button></div><p id="brainstormStatus" class="import-status" role="status"></p><div id="brainstormSummary" class="brainstorm-summary" hidden></div></section>
@@ -214,6 +219,13 @@
         <div class="page-heading"><div><div class="eyebrow">PERSONAL ERROR LOG</div><h1>Sổ tay <em>lỗi sai.</em></h1><p>Lưu lại những điểm cần ôn tập sau mỗi lần nộp bài.</p></div></div>
         <div id="mistakeList" class="stack-list"></div>
       </section>
+      <section id="vocabularyNotesView" class="view" hidden>
+        <div class="page-heading"><div><div class="eyebrow">AI LANGUAGE NOTEBOOK</div><h1>Sổ tay <em>ghi chú AI.</em></h1><p>Lưu từ, cụm từ, vế câu hoặc cả câu ngay trong lúc luyện. Mỗi ghi chú gồm nghĩa tiếng Việt, điểm cần nhớ, cách dùng và ví dụ song ngữ.</p></div><button type="button" class="button secondary" id="refreshVocabNotesButton">↻ Tải lại</button></div>
+        <div id="vocabNotesStorageNotice" class="settings-notice" hidden><h2>Ghi chú trên trình duyệt</h2><p>Bạn chưa đăng nhập. Ghi chú sẽ được lưu trên trình duyệt hiện tại; đăng nhập để lưu riêng theo tài khoản và đồng bộ giữa các thiết bị.</p><button type="button" class="button primary" id="vocabNotesLoginButton">Đăng nhập / Đăng ký</button></div>
+        <div class="vocab-notes-toolbar"><label class="sr-only" for="vocabNotesSearch">Tìm ghi chú</label><input id="vocabNotesSearch" type="search" placeholder="Tìm từ, nghĩa, cách dùng hoặc ví dụ…"><label class="sr-only" for="vocabNotesTypeFilter">Lọc theo loại</label><select id="vocabNotesTypeFilter"><option value="all">Tất cả ghi chú</option><option value="Từ">Từ</option><option value="Cụm từ">Cụm từ</option><option value="Mệnh đề / vế câu">Mệnh đề / vế câu</option><option value="Câu">Câu</option><option value="Cách diễn đạt">Cách diễn đạt</option></select></div>
+        <p id="vocabNotesStatus" class="import-status" role="status"></p>
+        <div id="vocabNotesList" class="vocab-notes-grid"></div>
+      </section>
       <section id="settingsView" class="view" hidden>
         <div class="page-heading"><div><div class="eyebrow">ACCOUNT SETTINGS</div><h1>Cài đặt <em>tài khoản.</em></h1><p>Đổi mật khẩu đăng nhập bằng cách xác minh mật khẩu hiện tại.</p></div></div>
         <div id="settingsLoginNotice" class="settings-notice" hidden><h2>Bạn chưa đăng nhập</h2><p>Đăng nhập trước để quản lý mật khẩu của tài khoản.</p><button type="button" class="button primary" id="settingsLoginButton">Đăng nhập / Đăng ký</button></div>
@@ -243,7 +255,7 @@
       <dialog id="editBuiltinDialog" class="modal"><form id="editBuiltinForm"><div class="modal-kicker">ADMIN · EDIT LESSON</div><h2>Chỉnh sửa đề thư viện</h2><input id="editBuiltinId" type="hidden"><label>Task<select id="editBuiltinTask"><option>Task 1</option><option>Task 2</option></select></label><label>Tiêu đề<input id="editBuiltinTitle" required maxlength="180"></label><label>Đề bài<textarea id="editBuiltinQuestion" rows="4" required></textarea></label><label>Chủ đề<input id="editBuiltinTopic" required></label><label>Dạng bài<input id="editBuiltinType" required></label><label>URL nguồn<input id="editBuiltinSourceUrl" type="url"></label><label>Bài mẫu tiếng Anh · dòng trống để bắt đầu đoạn mới<textarea id="editBuiltinEnglish" rows="7" required></textarea></label><div class="paragraph-tools"><button type="button" class="button secondary" id="segmentBuiltinParagraphsButton">✦ AI tách theo format IELTS</button><small>Task 1: Introduction → Overview → Body 1 → Body 2. Task 2: Introduction → Body 1 → Body 2 → Conclusion. Quản lý trực tiếp ranh giới đoạn của bài dùng chung.</small></div><label>Bản dịch tiếng Việt · dòng trống khớp với đoạn tiếng Anh<textarea id="editBuiltinVietnamese" rows="7" required></textarea></label><div class="modal-actions"><button type="button" class="button secondary" id="cancelBuiltinEdit">Hủy</button><button class="button primary" type="submit">Lưu thay đổi cho mọi tài khoản</button></div><p id="editBuiltinStatus" class="import-status"></p></form></dialog>
       <dialog id="editPersonalLessonDialog" class="modal personal-edit-dialog"><form id="editPersonalLessonForm"><div class="modal-kicker">MY PRIVATE LESSON</div><h2>Chỉnh sửa đề riêng</h2><input id="editPersonalId" type="hidden"><label>Task<select id="editPersonalTask"><option>Task 1</option><option>Task 2</option></select></label><label>Tiêu đề<input id="editPersonalTitle" required maxlength="180"></label><label>Dạng bài<select id="editPersonalType"></select></label><label>Dạng bài khác<input id="editPersonalTypeOther" hidden maxlength="80"></label><label>Chủ đề<select id="editPersonalTopic"></select></label><label>Chủ đề khác<input id="editPersonalTopicOther" hidden maxlength="80"></label><label>Đề bài<textarea id="editPersonalQuestion" rows="4" required></textarea></label><label>URL nguồn (tùy chọn)<input id="editPersonalSourceUrl" type="url"></label><label>Bài mẫu tiếng Anh · dòng trống để bắt đầu đoạn mới<textarea id="editPersonalEnglish" rows="7" required></textarea></label><div class="paragraph-tools"><button type="button" class="button secondary" id="segmentPersonalParagraphsButton">✦ AI tách theo format IELTS</button><small>Task 1: Introduction → Overview → Body 1 → Body 2. Task 2: Introduction → Body 1 → Body 2 → Conclusion. Quản lý trực tiếp ranh giới đoạn của đề riêng này.</small></div><label>Bản dịch tiếng Việt · dòng trống khớp với đoạn tiếng Anh<textarea id="editPersonalVietnamese" rows="7" required></textarea></label><div class="modal-actions"><button type="button" class="button secondary" id="cancelPersonalEdit">Hủy</button><button type="submit" class="button primary">Lưu đề riêng</button></div><p id="editPersonalStatus" class="import-status" role="status"></p></form></dialog>
       <footer class="main-footer" aria-label="Thông tin và liên hệ WriteWiser">
-        <div class="footer-meta-row"><span>WriteWiser v33 · nền tảng v13</span><span>Học chủ động. Viết có chủ đích.</span></div>
+        <div class="footer-meta-row"><span>WriteWiser v38 · nền tảng v13</span><span>Học chủ động. Viết có chủ đích.</span></div>
         <p class="footer-disclaimer">Các đoạn trích bài mẫu và đề thi thuộc bản quyền của DOL IELTS (hoặc các chủ sở hữu tương ứng). Ứng dụng chỉ sử dụng trích đoạn ngắn phục vụ mục đích học tập phi lợi nhuận và luôn đính kèm liên kết nguồn gốc.</p>
         <div class="footer-contact">Liên hệ: <a href="https://www.facebook.com/people/WriteWiser/61595026757886/" target="_blank" rel="noopener noreferrer">Facebook WriteWiser ↗</a></div>
       </footer>
@@ -275,6 +287,6 @@
     </form>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=37"></script>
+  <script src="/app.js?v=38"></script>
 </body>
 </html>

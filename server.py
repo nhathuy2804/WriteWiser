@@ -64,6 +64,9 @@ SEO_PAGES = {
     "/so-tay-loi-sai": {
         "view": "mistakes", "title": "Sổ tay lỗi sai cá nhân | WriteWiser", "description": "Ôn tập các lỗi thường gặp đã lưu trong quá trình luyện IELTS Writing trên WriteWiser.", "heading": "Sổ tay lỗi sai cá nhân", "summary": "Khu vực ôn tập riêng của tài khoản.", "bullets": [], "index": False,
     },
+    "/so-tay-ghi-chu-ai": {
+        "view": "vocabularyNotes", "title": "Sổ tay ghi chú AI | WriteWiser", "description": "Lưu từ vựng, cụm từ và cấu trúc IELTS Writing với nghĩa tiếng Việt, cách dùng và ví dụ do AI hỗ trợ.", "heading": "Sổ tay ghi chú AI", "summary": "Khu vực ghi chú học tập riêng.", "bullets": [], "index": False,
+    },
     "/cai-dat-tai-khoan": {
         "view": "settings", "title": "Cài đặt tài khoản | WriteWiser", "description": "Quản lý cài đặt tài khoản WriteWiser.", "heading": "Cài đặt tài khoản", "summary": "Khu vực riêng tư của tài khoản.", "bullets": [], "index": False,
     },
@@ -294,6 +297,14 @@ def init_db():
             PRIMARY KEY (user_id, record_id)
         )""")
         c.execute("CREATE INDEX IF NOT EXISTS user_history_recent_idx ON user_history (user_id, created_at DESC)")
+        c.execute("""CREATE TABLE IF NOT EXISTS user_notes (
+            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            note_id TEXT NOT NULL,
+            note_json TEXT NOT NULL,
+            created_at BIGINT NOT NULL,
+            PRIMARY KEY (user_id, note_id)
+        )""")
+        c.execute("CREATE INDEX IF NOT EXISTS user_notes_recent_idx ON user_notes (user_id, created_at DESC)")
         c.execute("""CREATE TABLE IF NOT EXISTS app_settings (
             setting_key TEXT PRIMARY KEY,
             setting_value TEXT NOT NULL,
@@ -1375,12 +1386,12 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "37-durable-history", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "38-ai-notes", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
                     master_prompt = prompt_path.read_text(encoding="utf-8")
-                    return self.send_json(200, {"masterPromptLoaded": bool(master_prompt.strip()), "promptChars": len(master_prompt), "promptSha256": hashlib.sha256(master_prompt.encode("utf-8")).hexdigest(), "promptFile": "resources/ielts_writing_master_prompt.txt", "appliedTo": "/api/writing-feedback", "criteriaBands": "integer 0-9", "overallBand": "nearest half-band", "version": "36"})
+                    return self.send_json(200, {"masterPromptLoaded": bool(master_prompt.strip()), "promptChars": len(master_prompt), "promptSha256": hashlib.sha256(master_prompt.encode("utf-8")).hexdigest(), "promptFile": "resources/ielts_writing_master_prompt.txt", "appliedTo": "/api/writing-feedback", "criteriaBands": "integer 0-9", "overallBand": "nearest half-band", "version": "38"})
                 except Exception as exc:
                     return self.send_json(500, {"masterPromptLoaded": False, "error": "Không đọc được prompt chấm bài: " + str(exc)[:180]})
             if path == "/api/admin/calibrations":
@@ -1430,6 +1441,20 @@ class Handler(SimpleHTTPRequestHandler):
             if path == "/api/me":
                 user = self.session_user()
                 return self.send_json(200, {"authenticated": bool(user), "user": user})
+            if path == "/api/notes":
+                user = self.session_user()
+                if not user:
+                    return self.send_json(401, {"error": "Đăng nhập để tải sổ tay ghi chú đã đồng bộ."})
+                with db() as c:
+                    rows = c.execute("SELECT note_json FROM user_notes WHERE user_id=? ORDER BY created_at DESC", (user["id"],)).fetchall()
+                notes = []
+                for row in rows:
+                    try:
+                        note = json.loads(row["note_json"])
+                        if isinstance(note, dict): notes.append(note)
+                    except Exception:
+                        continue
+                return self.send_json(200, {"notes": notes, "count": len(notes), "storage": "account-database"})
             if path == "/api/history":
                 user = self.session_user()
                 if not user:
@@ -1555,7 +1580,7 @@ class Handler(SimpleHTTPRequestHandler):
         elif path == "/api/login":
             window, limit = 60, 12
             identity = ip
-        elif path in ("/api/translate", "/api/feedback", "/api/writing-feedback", "/api/brainstorm-review"):
+        elif path in ("/api/translate", "/api/feedback", "/api/writing-feedback", "/api/brainstorm-review", "/api/notes/generate"):
             window, limit = 60, 12
             jar = cookies.SimpleCookie()
             try:
@@ -1592,6 +1617,72 @@ class Handler(SimpleHTTPRequestHandler):
             data = self.read_json()
         except ValueError as e:
             return self.send_json(400, {"error": str(e)})
+        if path == "/api/notes/generate":
+            selected_text = str(data.get("selectedText", "")).strip()
+            if not selected_text:
+                return self.send_json(400, {"error": "Hãy bôi đen một từ, cụm từ, vế câu hoặc câu trước khi lưu ghi chú."})
+            if len(selected_text) > 1800:
+                return self.send_json(413, {"error": "Đoạn chọn quá dài. Hãy chọn một từ, cụm từ, vế câu hoặc tối đa một vài câu."})
+            context = str(data.get("context", "")).strip()[:1200]
+            lesson_title = str(data.get("lessonTitle", "")).strip()[:200]
+            task = str(data.get("task", "")).strip()[:20]
+            mode = str(data.get("mode", "")).strip()[:30]
+            system_instruction = """Bạn là gia sư tiếng Anh học thuật cho người Việt đang học IELTS Writing. Hãy biến đoạn người học chọn thành một ghi chú có thể dùng để học lại. Chỉ trả về MỘT JSON object hợp lệ, không Markdown, đúng schema: {"expression":string,"category":string,"note":string,"meaning_vi":string,"usage":string,"example_en":string,"example_vi":string}.
+
+YÊU CẦU: (1) Đoạn được chọn có thể là từ đơn, cụm từ, mệnh đề, vế câu hoặc cả câu; xác định đúng loại và chọn độ sâu giải thích phù hợp. (2) Nếu đoạn chọn bằng tiếng Anh, giữ nguyên cách viết trong trường expression trừ khi cần nêu dạng chuẩn phổ biến hơn; nếu là tiếng Việt, đưa ra cách diễn đạt tiếng Anh tự nhiên, phù hợp ngữ cảnh IELTS ở trường expression. (3) meaning_vi phải giải thích nghĩa tiếng Việt sát ngữ cảnh, không chỉ dịch máy móc. (4) note là điểm ghi nhớ quan trọng, sắc thái nghĩa hoặc lý do cách diễn đạt này hữu ích; tránh lặp lại meaning_vi. (5) usage nêu cấu trúc, ngữ pháp, collocation, giới từ đi kèm và mức độ trang trọng khi phù hợp; không bịa quy tắc không chắc chắn. Với cả câu, giải thích cấu trúc đáng học. (6) example_en là một ví dụ tiếng Anh mới, tự nhiên, có thể áp dụng trong IELTS Writing, không sao chép nguyên đoạn được chọn; example_vi là bản dịch tiếng Việt chính xác của ví dụ. (7) Viết hoàn toàn bằng tiếng Việt cho note, meaning_vi và usage. Trường category phải đúng một trong các giá trị: Từ, Cụm từ, Mệnh đề / vế câu, Câu, Cách diễn đạt. Trả lời hữu ích nhưng súc tích. Không bịa ngữ cảnh; nếu ngữ cảnh chưa rõ, ghi rõ nghĩa phổ biến nhất."""
+            prompt = ("Hãy tạo ghi chú cho phần người học chọn dưới đây.\n\nPHẦN ĐƯỢC CHỌN:\n" + selected_text +
+                      "\n\nNGỮ CẢNH XUNG QUANH (có thể trống):\n" + (context or "Không có ngữ cảnh bổ sung") +
+                      "\n\nBÀI LUYỆN: " + (lesson_title or "Không xác định") +
+                      "\nTASK: " + (task or "Không xác định") +
+                      "\nCHẾ ĐỘ: " + (mode or "Không xác định") +
+                      "\n\nTrả về đủ bảy trường JSON theo schema.")
+            try:
+                generated, model = ai_generate(system_instruction, prompt, max_output_tokens=2200)
+                if not isinstance(generated, dict):
+                    return self.send_json(502, {"error": "AI trả về ghi chú không đúng định dạng. Hãy thử lại."})
+                def note_field(key, limit):
+                    value = generated.get(key, "")
+                    if not isinstance(value, str): value = str(value) if value is not None else ""
+                    return value.strip()[:limit]
+                expression = note_field("expression", 500) or selected_text[:500]
+                raw_category = note_field("category", 40).strip().lower()
+                category_aliases = {
+                    "từ": "Từ", "word": "Từ", "vocabulary": "Từ",
+                    "cụm từ": "Cụm từ", "phrase": "Cụm từ", "collocation": "Cụm từ", "idiom": "Cụm từ",
+                    "mệnh đề / vế câu": "Mệnh đề / vế câu", "clause": "Mệnh đề / vế câu", "phrase/clause": "Mệnh đề / vế câu",
+                    "câu": "Câu", "sentence": "Câu", "expression": "Cách diễn đạt", "cách diễn đạt": "Cách diễn đạt"
+                }
+                category = category_aliases.get(raw_category, "Cách diễn đạt")
+                note = {
+                    "id": secrets.token_urlsafe(16),
+                    "expression": expression,
+                    "category": category,
+                    "note": note_field("note", 1800),
+                    "meaning_vi": note_field("meaning_vi", 1800),
+                    "usage": note_field("usage", 2400),
+                    "example_en": note_field("example_en", 1200),
+                    "example_vi": note_field("example_vi", 1200),
+                    "selected_text": selected_text[:1800],
+                    "context": context[:1200],
+                    "lessonTitle": lesson_title,
+                    "task": task,
+                    "createdAt": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                    "model": str(model)[:120]
+                }
+                if not note["note"] or not note["meaning_vi"] or not note["usage"] or not note["example_en"] or not note["example_vi"]:
+                    return self.send_json(502, {"error": "AI tạo ghi chú thiếu trường bắt buộc. Hãy thử tạo lại."})
+                user = self.session_user()
+                if user:
+                    now = int(time.time())
+                    with db() as c:
+                        c.execute("INSERT INTO user_notes(user_id,note_id,note_json,created_at) VALUES(?,?,?,?)", (user["id"], note["id"], json.dumps(note, ensure_ascii=False), now))
+                return self.send_json(200, {"note": note, "saved": bool(user), "storage": "account-database" if user else "browser-local", "model": model})
+            except RuntimeError as e:
+                message = str(e)
+                code = 429 if "quota" in message.lower() or "429" in message else 502
+                return self.send_json(code, {"error": "Không tạo được ghi chú AI. " + message[:350]})
+            except Exception:
+                return self.send_json(500, {"error": "AI đã xử lý nhưng máy chủ không lưu được ghi chú. Hãy thử lại hoặc kiểm tra kết nối database."})
         if path == "/api/history":
             user = self.session_user()
             if not user:
@@ -2013,6 +2104,14 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
             with db() as c:
                 c.execute("DELETE FROM user_history WHERE user_id=?", (user["id"],))
             return self.send_json(200, {"ok": True, "deleted": "all"})
+        note_match = re.fullmatch(r"/api/notes/([^/]+)", path)
+        if note_match:
+            user = self.session_user()
+            if not user: return self.send_json(401, {"error": "Bạn cần đăng nhập để xóa ghi chú đã đồng bộ."})
+            note_id = unquote(note_match.group(1))[:120]
+            with db() as c:
+                c.execute("DELETE FROM user_notes WHERE user_id=? AND note_id=?", (user["id"], note_id))
+            return self.send_json(200, {"ok": True, "deleted": note_id})
         history_match = re.fullmatch(r"/api/history/([^/]+)", path)
         if history_match:
             user = self.session_user()
@@ -2140,11 +2239,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v37 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v38 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v37.")
+        print("\nStopping WriteWiser v38.")
     finally:
         server.server_close()
 

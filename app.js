@@ -148,12 +148,13 @@ const WW_ROUTE_CONFIG = {
   "/lich-su-bai-lam": {view:"history",title:"Lịch sử bài làm cá nhân | WriteWiser",description:"Xem lịch sử luyện IELTS Writing và các phản hồi đã lưu trong tài khoản WriteWiser.",index:false},
   "/dashboard-hoc-tap": {view:"dashboard",title:"Dashboard học tập cá nhân | WriteWiser",description:"Theo dõi tiến độ và thống kê luyện IELTS Writing trong tài khoản WriteWiser.",index:false},
   "/so-tay-loi-sai": {view:"mistakes",title:"Sổ tay lỗi sai cá nhân | WriteWiser",description:"Ôn tập các lỗi thường gặp đã lưu trong quá trình luyện IELTS Writing trên WriteWiser.",index:false},
+  "/so-tay-ghi-chu-ai": {view:"vocabularyNotes",title:"Sổ tay ghi chú AI | WriteWiser",description:"Lưu từ vựng, cụm từ và cấu trúc IELTS Writing với nghĩa tiếng Việt, cách dùng và ví dụ do AI hỗ trợ.",index:false},
   "/cai-dat-tai-khoan": {view:"settings",title:"Cài đặt tài khoản | WriteWiser",description:"Quản lý cài đặt tài khoản WriteWiser.",index:false},
   "/quan-ly-de-cua-toi": {view:"personalLessons",title:"Quản lý đề riêng | WriteWiser",description:"Quản lý bộ đề IELTS Writing đã lưu trong tài khoản WriteWiser.",index:false},
   "/quan-ly-thu-vien": {view:"adminLessons",title:"Quản lý thư viện | WriteWiser",description:"Khu vực quản trị thư viện WriteWiser.",index:false},
   "/bao-mat-web": {view:"adminSettings",title:"Bảo mật website | WriteWiser",description:"Khu vực quản trị bảo mật WriteWiser.",index:false}
 };
-const WW_VIEW_PATH = {library:"/thu-vien-de-ielts-writing",practice:"/luyen-dich-nguoc-tieng-anh",history:"/lich-su-bai-lam",dashboard:"/dashboard-hoc-tap",mistakes:"/so-tay-loi-sai",settings:"/cai-dat-tai-khoan",personalLessons:"/quan-ly-de-cua-toi",adminLessons:"/quan-ly-thu-vien",adminSettings:"/bao-mat-web"};
+const WW_VIEW_PATH = {library:"/thu-vien-de-ielts-writing",practice:"/luyen-dich-nguoc-tieng-anh",history:"/lich-su-bai-lam",dashboard:"/dashboard-hoc-tap",mistakes:"/so-tay-loi-sai",vocabularyNotes:"/so-tay-ghi-chu-ai",settings:"/cai-dat-tai-khoan",personalLessons:"/quan-ly-de-cua-toi",adminLessons:"/quan-ly-thu-vien",adminSettings:"/bao-mat-web"};
 function wwNormalizePath(path){const p=String(path||"/").split("?")[0].replace(/\/+$/,"");return p||"/";}
 function wwEnsureMeta(name,attribute="name"){let el=document.head.querySelector(`meta[${attribute}="${name}"]`);if(!el){el=document.createElement("meta");el.setAttribute(attribute,name);document.head.appendChild(el);}return el;}
 function wwApplyRouteMetadata(path=window.location.pathname){const route=WW_ROUTE_CONFIG[wwNormalizePath(path)]||WW_ROUTE_CONFIG["/"];document.title=route.title;wwEnsureMeta("description").setAttribute("content",route.description);wwEnsureMeta("robots").setAttribute("content",route.index?"index,follow,max-image-preview:large":"noindex,nofollow");let canonical=document.head.querySelector('link[rel="canonical"]');if(!canonical){canonical=document.createElement("link");canonical.rel="canonical";document.head.appendChild(canonical);}canonical.href=window.location.origin+wwNormalizePath(path);wwEnsureMeta("og:title","property").setAttribute("content",route.title);wwEnsureMeta("og:description","property").setAttribute("content",route.description);wwEnsureMeta("og:url","property").setAttribute("content",canonical.href);wwEnsureMeta("twitter:title").setAttribute("content",route.title);wwEnsureMeta("twitter:description").setAttribute("content",route.description);}
@@ -168,6 +169,12 @@ let historyReviewMode = false; // Read-only view of a saved attempt; never write
 let independentDrafts = read("draftwise.independentDrafts.v1", {});
 let brainstormDrafts = read("writewiser.brainstormDrafts.v13", {});
 let currentUser = null, accountMode = "login", syncInProgress = false;
+const GUEST_VOCAB_NOTES_KEY = "writewiser.vocabularyNotes.guest.v1";
+let guestVocabNotes = read(GUEST_VOCAB_NOTES_KEY, []);
+if(!Array.isArray(guestVocabNotes))guestVocabNotes=[];
+let vocabNotes = [...guestVocabNotes];
+let lastStudySelection = null;
+let vocabNotesLoadGeneration = 0;
 let savedStudyDraft = null;
 let studyDraftDirty = false;
 let lessonAnswers = read("draftwise.lessonAnswers.v1", {});
@@ -367,10 +374,10 @@ $("checkSentenceButton")?.addEventListener("click",async()=>{
 document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key==="Enter"&&$("practiceView").hidden===false){e.preventDefault();selectSentence(active===ESSAY.length-1?0:active+1)}});
 $("resetButton").addEventListener("click",()=>{if(confirm("Xóa toàn bộ câu trả lời hiện tại và bắt đầu lại?")){answers=Array(ESSAY.length).fill("");lessonAnswers[currentLesson.id]=answers;active=0;hintShown=false;write("draftwise.lessonAnswers.v1",lessonAnswers);write(STORAGE.answers,answers);$("resultPanel").hidden=true;renderAll();showToast("Đã tạo lượt luyện tập mới.")}});
 function switchView(view,options={}){
-  const views=["library","practice","history","dashboard","mistakes","settings","personalLessons","adminLessons","adminSettings"];
+  const views=["library","practice","history","dashboard","mistakes","vocabularyNotes","settings","personalLessons","adminLessons","adminSettings"];
   views.forEach(v=>{const el=$(v+"View");if(el)el.hidden=v!==view;});
   document.querySelectorAll(".nav-item[data-view]").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
-  const labels={library:"Thư viện đề",practice:"Luyện dịch ngược",history:"Lịch sử bài làm",dashboard:"Dashboard",mistakes:"Sổ tay lỗi sai",settings:"Cài đặt tài khoản",personalLessons:"Quản lý đề của tôi",adminLessons:"Quản lý thư viện",adminSettings:"Bảo mật web"};
+  const labels={library:"Thư viện đề",practice:"Luyện dịch ngược",history:"Lịch sử bài làm",dashboard:"Dashboard",mistakes:"Sổ tay lỗi sai",vocabularyNotes:"Sổ tay ghi chú AI",settings:"Cài đặt tài khoản",personalLessons:"Quản lý đề của tôi",adminLessons:"Quản lý thư viện",adminSettings:"Bảo mật web"};
   const crumb=$("breadcrumbCurrent");if(crumb)crumb.textContent=labels[view]||"WriteWiser";
   if(view==="library"){
     if(libraryLoadState==="ready" && Date.now()-lastLibrarySyncAt>15000) loadServerLessons();
@@ -379,6 +386,7 @@ function switchView(view,options={}){
   if(view==="history")renderHistory();
   if(view==="dashboard")renderDashboard();
   if(view==="mistakes")renderMistakes();
+  if(view==="vocabularyNotes")loadVocabularyNotes();
   if(view==="settings"){updateSettingsAccess();}
   if(view==="personalLessons"){updatePersonalLessonsAccess();renderPersonalLessons();}
   if(view==="adminLessons"||view==="adminSettings"){
@@ -432,6 +440,138 @@ $("independentEssayInput").addEventListener("input",()=>{independentDrafts[curre
 $("independentEssayInput").addEventListener("input",markStudyDraftDirty);
 $("clearIndependentButton").addEventListener("click",()=>{if(confirm("Xóa bài viết tự do đang nhập?")){$("independentEssayInput").value="";independentDrafts[currentLesson.id]="";write("draftwise.independentDrafts.v1",independentDrafts);updateIndependentMeta();showToast("Đã xóa bản nháp.")}});
 setInterval(()=>{if(practiceMode==="independent"&&!$("independentModePanel").hidden&&!historyReviewMode)updateIndependentMeta()},1000);
+// Capture text selected in either writing textarea or anywhere in the practice source.
+function selectedContextFromText(value,start,end){
+  const text=String(value||"");
+  const left=Math.max(0,start-260),right=Math.min(text.length,end+260);
+  return text.slice(left,right).trim();
+}
+function rememberInputSelection(field){
+  if(!field || typeof field.selectionStart!=="number" || typeof field.selectionEnd!=="number")return;
+  const start=field.selectionStart,end=field.selectionEnd;
+  if(end<=start){if(lastStudySelection?.sourceKind==="textarea"&&lastStudySelection.sourceId===field.id)lastStudySelection=null;return;}
+  const text=String(field.value||"").slice(start,end).trim();
+  if(!text){if(lastStudySelection?.sourceKind==="textarea"&&lastStudySelection.sourceId===field.id)lastStudySelection=null;return;}
+  lastStudySelection={text,sourceKind:"textarea",sourceId:field.id,context:selectedContextFromText(field.value,start,end),updatedAt:Date.now()};
+}
+function rememberPageSelection(){
+  const selection=window.getSelection?.();
+  const text=selection?String(selection.toString()||"").trim():"";
+  if(!text){if(lastStudySelection?.sourceKind==="page")lastStudySelection=null;return;}
+  let context="";
+  try{
+    const node=selection.anchorNode;
+    const element=node?.nodeType===Node.ELEMENT_NODE?node:node?.parentElement;
+    const scope=element?.closest?.(".essay-content,.current-source,.task-card,#independentQuestionText,.translation-panel,.writing-panel");
+    context=String(scope?.innerText||element?.parentElement?.innerText||"").trim().slice(0,1000);
+  }catch{}
+  lastStudySelection={text,sourceKind:"page",sourceId:"",context,updatedAt:Date.now()};
+}
+document.addEventListener("selectionchange",rememberPageSelection);
+["answerInput","independentEssayInput"].forEach(id=>{
+  const field=$(id);if(!field)return;
+  ["select","mouseup","keyup","touchend"].forEach(eventName=>field.addEventListener(eventName,()=>rememberInputSelection(field)));
+});
+function resolveStudySelection(preferredInputId){
+  if(lastStudySelection?.text)return lastStudySelection;
+  const domText=String(window.getSelection?.()?.toString()||"").trim();
+  if(domText){rememberPageSelection();return lastStudySelection;}
+  const preferred=$(preferredInputId);
+  if(preferred && preferred.selectionEnd>preferred.selectionStart){rememberInputSelection(preferred);if(lastStudySelection?.sourceId===preferredInputId)return lastStudySelection;}
+  return null;
+}
+function noteEscape(value){return escapeHtml(String(value||"")).replace(/\n/g,"<br>");}
+function updateVocabNotesCount(){const count=$("vocabNotesCount");if(count)count.textContent=String(currentUser?vocabNotes.length:guestVocabNotes.length);}
+async function generateSelectedVocabularyNote(preferredInputId,statusId,buttonId){
+  const button=$(buttonId),status=$(statusId);
+  const selection=resolveStudySelection(preferredInputId);
+  if(!selection?.text){if(status)status.textContent="Hãy bôi đen một từ, cụm từ, vế câu hoặc câu trước khi nhấn lưu.";showToast("Chưa có đoạn văn bản được chọn.");return;}
+  const selectedText=selection.text.trim();
+  if(selectedText.length>1800){if(status)status.textContent="Đoạn chọn quá dài. Hãy chọn ngắn hơn (tối đa 1.800 ký tự).";return;}
+  if(button){button.disabled=true;button.dataset.oldText=button.textContent;button.textContent="AI đang tạo ghi chú…";}
+  if(status)status.textContent="Đang phân tích đoạn được chọn và tạo ghi chú tiếng Việt…";
+  try{
+    const result=await api("/api/notes/generate",{method:"POST",body:JSON.stringify({selectedText,context:selection.context||"",lessonTitle:currentLesson?.title||"",task:currentLesson?.task||"",mode:practiceMode||"reverse"})});
+    const note=result.note;
+    if(!note||!note.id)throw new Error("AI chưa trả về ghi chú hợp lệ.");
+    if(currentUser){vocabNotes=[note,...vocabNotes.filter(item=>item.id!==note.id)];}
+    else{
+      guestVocabNotes=[note,...guestVocabNotes.filter(item=>item.id!==note.id)];
+      try{localStorage.setItem(GUEST_VOCAB_NOTES_KEY,JSON.stringify(guestVocabNotes));}catch{throw new Error("Bộ nhớ trình duyệt đã đầy; không thể lưu ghi chú khách.");}
+      vocabNotes=guestVocabNotes.slice();
+    }
+    updateVocabNotesCount();
+    if(!$("vocabularyNotesView")?.hidden)renderVocabularyNotes();
+    if(status)status.textContent=currentUser?"Đã tạo và lưu ghi chú vào tài khoản. Bạn có thể mở Sổ tay ghi chú AI để xem lại.":"Đã tạo ghi chú và lưu trên trình duyệt này. Đăng nhập để đồng bộ giữa các thiết bị.";
+    showToast(currentUser?"Đã lưu ghi chú AI vào tài khoản.":"Đã lưu ghi chú AI trên trình duyệt.");
+    lastStudySelection=null;
+  }catch(error){if(status)status.textContent="Chưa lưu được ghi chú: "+error.message;showToast("Tạo ghi chú thất bại: "+error.message);}
+  finally{if(button){button.disabled=false;button.textContent=button.dataset.oldText||"✦ Lưu đoạn bôi đen";delete button.dataset.oldText;}}
+}
+async function loadVocabularyNotes(){
+  const generation=++vocabNotesLoadGeneration;
+  const notice=$("vocabNotesStorageNotice"),status=$("vocabNotesStatus");
+  if(notice)notice.hidden=!!currentUser;
+  if(status)status.textContent="Đang tải sổ tay ghi chú…";
+  if(currentUser){
+    try{
+      const result=await api("/api/notes");
+      if(generation!==vocabNotesLoadGeneration)return;
+      vocabNotes=Array.isArray(result.notes)?result.notes:[];
+      if(status)status.textContent=`Đã tải ${vocabNotes.length} ghi chú từ database tài khoản.`;
+    }catch(error){
+      if(generation!==vocabNotesLoadGeneration)return;
+      if(status)status.textContent="Không tải được ghi chú từ tài khoản: "+error.message;
+      vocabNotes=[];
+    }
+  }else{
+    guestVocabNotes=read(GUEST_VOCAB_NOTES_KEY,[]);if(!Array.isArray(guestVocabNotes))guestVocabNotes=[];
+    vocabNotes=guestVocabNotes.slice();
+    if(status)status.textContent=`${vocabNotes.length} ghi chú lưu trên trình duyệt hiện tại.`;
+  }
+  if(generation===vocabNotesLoadGeneration)renderVocabularyNotes();
+}
+function renderVocabularyNotes(){
+  const root=$("vocabNotesList"),search=String($("vocabNotesSearch")?.value||"").trim().toLowerCase(),type=String($("vocabNotesTypeFilter")?.value||"all");
+  if(!root)return;
+  updateVocabNotesCount();
+  const items=(Array.isArray(vocabNotes)?vocabNotes:[]).filter(note=>{
+    const corpus=[note.expression,note.note,note.meaning_vi,note.usage,note.example_en,note.example_vi,note.selected_text,note.lessonTitle].join(" ").toLowerCase();
+    const matchesSearch=!search||corpus.includes(search);
+    const matchesType=type==="all"||String(note.category||"Cách diễn đạt").toLowerCase()===type.toLowerCase();
+    return matchesSearch&&matchesType;
+  });
+  if(!items.length){root.innerHTML=`<div class="empty-state"><strong>${vocabNotes.length?"Không tìm thấy ghi chú phù hợp":"Sổ tay ghi chú đang trống"}</strong>${vocabNotes.length?"Hãy thử từ khóa hoặc bộ lọc khác.":"Khi đang luyện, bôi đen từ/cụm từ/câu rồi nhấn “Lưu đoạn bôi đen”. AI sẽ tạo ghi chú và lưu tại đây."}</div>`;return;}
+  root.innerHTML=items.map(note=>{
+    const date=note.createdAt?new Date(note.createdAt).toLocaleString("vi-VN"):"Vừa lưu";
+    const provenance=[note.task,note.lessonTitle].filter(Boolean).join(" · ");
+    const category=note.category||"Cách diễn đạt";
+    return `<article class="vocab-note-card" data-note-card="${escapeHtml(note.id)}"><div class="vocab-note-card-top"><span class="vocab-note-category">${escapeHtml(category)}</span><time>${escapeHtml(date)}</time></div><h2>${escapeHtml(note.expression||note.selected_text||"Ghi chú")}</h2><section><h3>Ý nghĩa tiếng Việt</h3><p>${noteEscape(note.meaning_vi)}</p></section>${note.note?`<section><h3>Ghi chú cần nhớ</h3><p>${noteEscape(note.note)}</p></section>`:""}<section><h3>Cách dùng</h3><p>${noteEscape(note.usage)}</p></section><section class="vocab-note-example"><h3>Ví dụ</h3><p class="vocab-example-en">${noteEscape(note.example_en)}</p>${note.example_vi?`<p class="vocab-example-vi">${noteEscape(note.example_vi)}</p>`:""}</section>${provenance?`<p class="vocab-note-source">${escapeHtml(provenance)}</p>`:""}<div class="vocab-note-actions"><button type="button" class="button secondary" data-note-copy="${escapeHtml(note.id)}">Sao chép ghi chú</button><button type="button" class="button danger-quiet" data-note-delete="${escapeHtml(note.id)}">Xóa</button></div></article>`;
+  }).join("");
+  root.querySelectorAll("[data-note-delete]").forEach(button=>button.addEventListener("click",async()=>{
+    const id=button.dataset.noteDelete;if(!id)return;
+    if(!confirm("Xóa ghi chú này khỏi sổ tay?"))return;
+    try{
+      if(currentUser)await api("/api/notes/"+encodeURIComponent(id),{method:"DELETE",body:"{}"});
+      else{guestVocabNotes=guestVocabNotes.filter(note=>note.id!==id);localStorage.setItem(GUEST_VOCAB_NOTES_KEY,JSON.stringify(guestVocabNotes));}
+      vocabNotes=vocabNotes.filter(note=>note.id!==id);renderVocabularyNotes();if($("vocabNotesStatus"))$("vocabNotesStatus").textContent="Đã xóa ghi chú.";showToast("Đã xóa ghi chú.");
+    }catch(error){showToast("Không xóa được ghi chú: "+error.message);}
+  }));
+  root.querySelectorAll("[data-note-copy]").forEach(button=>button.addEventListener("click",async()=>{
+    const note=items.find(item=>item.id===button.dataset.noteCopy);if(!note)return;
+    const text=[note.expression,"Ý nghĩa: "+note.meaning_vi,note.note?"Ghi chú: "+note.note:"","Cách dùng: "+note.usage,"Ví dụ: "+note.example_en,note.example_vi?"Dịch: "+note.example_vi:""].filter(Boolean).join("\n\n");
+    try{await navigator.clipboard.writeText(text);showToast("Đã sao chép ghi chú.");}catch{showToast("Trình duyệt không cho phép sao chép lúc này.");}
+  }));
+}
+$("saveSelectedNoteButton")?.addEventListener("mousedown",event=>event.preventDefault());
+$("saveSelectedNoteButton")?.addEventListener("click",()=>generateSelectedVocabularyNote("answerInput","saveSelectedNoteStatus","saveSelectedNoteButton"));
+$("saveIndependentNoteButton")?.addEventListener("mousedown",event=>event.preventDefault());
+$("saveIndependentNoteButton")?.addEventListener("click",()=>generateSelectedVocabularyNote("independentEssayInput","saveIndependentNoteStatus","saveIndependentNoteButton"));
+$("vocabNotesSearch")?.addEventListener("input",renderVocabularyNotes);
+$("vocabNotesTypeFilter")?.addEventListener("change",renderVocabularyNotes);
+$("refreshVocabNotesButton")?.addEventListener("click",loadVocabularyNotes);
+$("vocabNotesLoginButton")?.addEventListener("click",openAccount);
+
 function makeIndependentPrompt(record){
  const isTask1=record.task==="Task 1";
  const expectedCriterion=isTask1?"Task Achievement":"Task Response";
@@ -1311,10 +1451,10 @@ $("accountForm").addEventListener("submit",async e=>{e.preventDefault();if(curre
   try{await loadAccountHistory(guestHistory)}catch(err){showToast("Không tải được lịch sử từ tài khoản: "+err.message)}
   await applySavedFeedbackCorrections();
   $("accountFeedback").textContent="Đăng nhập thành công. Dữ liệu đã được đồng bộ."; $("accountFeedback").classList.add("ok");
-  renderAll();renderProfile();renderHistory();await loadServerLessons();updateSavedDraftUI();refreshAdminPanel();setTimeout(()=>{$("accountDialog").close();if(savedStudyDraft)resumeSavedStudyDraft();else showToast("Đã đăng nhập: "+currentUser.username);},650);
+  renderAll();renderProfile();renderHistory();await loadServerLessons();updateSavedDraftUI();refreshAdminPanel();loadVocabularyNotes().catch(()=>{});setTimeout(()=>{$("accountDialog").close();if(savedStudyDraft)resumeSavedStudyDraft();else showToast("Đã đăng nhập: "+currentUser.username);},650);
 }catch(err){$("accountFeedback").textContent=err.message;$("accountFeedback").classList.remove("ok")}finally{$("accountSubmitButton").disabled=false}});
-$("accountLogoutButton").addEventListener("click",async()=>{try{await pushState()}catch{}try{await api("/api/logout",{method:"POST",body:"{}"})}catch{}currentUser=null;customLessons=[];resetAccountState();refreshAdminPanel();renderLibrary();$("accountDialog").close();$("accountFeedback").textContent="";$("accountFeedback").classList.remove("ok");renderProfile();updateSavedDraftUI();showToast("Đã đăng xuất. Bản nháp đã lưu vẫn được giữ trong tài khoản.")});
-async function checkSession(){try{const result=await api("/api/me");if(result.authenticated){currentUser=result.user;const remote=await api("/api/state");if(remote.state)applyRemoteState(remote.state);else resetAccountState();await migrateLegacyCustomLessonsIfNeeded(remote.state);if(!remote.state)await pushState();try{await loadAccountHistory()}catch(err){console.warn("Cannot load account history:",err.message)}await applySavedFeedbackCorrections();renderAll();renderProfile();await loadServerLessons();renderLibrary();updateSavedDraftUI();refreshAdminPanel();if(savedStudyDraft)resumeSavedStudyDraft()}}catch{}}
+$("accountLogoutButton").addEventListener("click",async()=>{try{await pushState()}catch{}try{await api("/api/logout",{method:"POST",body:"{}"})}catch{}currentUser=null;customLessons=[];vocabNotes=guestVocabNotes.slice();resetAccountState();renderVocabularyNotes();refreshAdminPanel();renderLibrary();$("accountDialog").close();$("accountFeedback").textContent="";$("accountFeedback").classList.remove("ok");renderProfile();updateSavedDraftUI();showToast("Đã đăng xuất. Bản nháp đã lưu vẫn được giữ trong tài khoản.")});
+async function checkSession(){try{const result=await api("/api/me");if(result.authenticated){currentUser=result.user;const remote=await api("/api/state");if(remote.state)applyRemoteState(remote.state);else resetAccountState();await migrateLegacyCustomLessonsIfNeeded(remote.state);if(!remote.state)await pushState();try{await loadAccountHistory()}catch(err){console.warn("Cannot load account history:",err.message)}await applySavedFeedbackCorrections();renderAll();renderProfile();await loadServerLessons();renderLibrary();updateSavedDraftUI();refreshAdminPanel();loadVocabularyNotes().catch(()=>{});if(savedStudyDraft)resumeSavedStudyDraft()}}catch{}}
 
 function openProfile(){$("nameInput").value=profile.name==="Người học"?"":profile.name;$("profileDialog").showModal()}
 $("saveProfileButton").addEventListener("click",e=>{e.preventDefault();profile.name=$("nameInput").value.trim()||"Người học";write(STORAGE.profile,profile);renderProfile();$("profileDialog").close();showToast("Đã lưu tên hồ sơ trên trình duyệt.")});
@@ -1389,6 +1529,7 @@ updateSettingsAccess();
 updatePersonalLessonsAccess();
 updateSavedDraftUI();
 renderAll();
+updateVocabNotesCount();
 
 // Gate unlock is verified server-side; only then load account and shared lessons.
 bootAccessGate();

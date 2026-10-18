@@ -1,19 +1,33 @@
-# WriteWiser v36 — History Review & Standard JSON Scoring
+# WriteWiser v38 — AI Language Notes + Durable History
 
 - Lịch sử AI review khôi phục `question`, `task`, `lessonTitle` và bài nộp từ snapshot của lượt làm, không dùng nhầm đề đang mở trong thư viện. Kết quả cũ hiển thị snapshot đề/bài đã chấm; vùng bài viết ở chế độ xem lại là chỉ đọc.
 - Prompt AI ở chế độ Tự viết yêu cầu một JSON contract thống nhất, đủ 4 tiêu chí và điểm breakdown nguyên 0–9; Overall Band do server tính từ bốn tiêu chí và làm tròn nửa band.
 - `vocabulary_review` và `grammar_review` tạo bảng sửa lỗi riêng khi có bằng chứng phù hợp; các trường này là tùy chọn. `paragraph_feedback`, `upgraded_version`, `next_steps` và `additional_notes` cũng có thể rỗng nếu không phù hợp với bài cụ thể.
 - Server chuẩn hóa các tên trường thay thế phổ biến từ AI provider trước khi lưu/hiển thị kết quả.
 
+## v38 — Sổ tay ghi chú AI
+- Bôi đen một từ, cụm từ, mệnh đề/vế câu hoặc câu trong vùng làm bài rồi nhấn **Lưu đoạn bôi đen** để AI tạo ghi chú tiếng Việt gồm điểm cần nhớ, nghĩa theo ngữ cảnh, cách dùng/cấu trúc/collocation và ví dụ Anh–Việt.
+- Trang riêng `/so-tay-ghi-chu-ai` hỗ trợ tìm kiếm, lọc loại ghi chú, sao chép và xóa. Ghi chú của tài khoản được lưu tách biệt trong bảng `user_notes` trên PostgreSQL; khách chưa đăng nhập dùng localStorage của trình duyệt hiện tại.
+- Dùng lại cấu hình AI provider hiện có qua `AI_PROVIDER_ORDER` và `CUSTOM_AI_PROVIDERS_JSON`; không cần tạo API key riêng cho ghi chú. Endpoint `/api/notes/generate` có giới hạn tốc độ cơ bản giống các endpoint AI khác.
+- Backend tự tạo bảng `user_notes` khi khởi động; không cần chạy migration thủ công. `/api/health` báo phiên bản `38-ai-notes`.
+
+## v37 — Lịch sử lưu riêng, không bị ghi đè bởi bản nháp
+- Lịch sử các lượt luyện được tách khỏi JSON trạng thái tài khoản sang bảng `user_history`, có khóa theo tài khoản và ID lượt làm. Lưu/cập nhật bản nháp không còn ghi đè hoặc xóa lịch sử.
+- Bản ghi được gửi lên máy chủ ngay sau khi nộp, sau khi có phản hồi AI thì cập nhật lại bản ghi đó. Lịch sử không còn bị giới hạn 100 lượt ở phía tài khoản; 100 lượt gần nhất chỉ là cache cục bộ trên trình duyệt.
+- Khi đọc lịch sử lần đầu, backend tự chuyển lịch sử cũ trong `user_state` sang bảng mới. Lịch sử khách chưa đăng nhập được nhập vào tài khoản khi đăng nhập/đăng ký trên cùng trình duyệt.
+- Xóa một lượt/xóa toàn bộ gọi API riêng và chỉ xóa dữ liệu lịch sử, không bị bản nháp đồng bộ tạo lại. Dashboard và bảng xếp hạng cũng đọc từ bảng lịch sử mới.
+- Muốn lịch sử tồn tại qua lần khởi động lại/redeploy trên Render, phải cấu hình `DATABASE_URL` tới PostgreSQL bền vững (theo phần triển khai bên dưới). Nếu `/api/health` báo `database: sqlite-local` trên hosting có filesystem tạm thời, dữ liệu server vẫn có thể mất khi instance bị thay thế. Khi chưa đăng nhập, dữ liệu chỉ nằm trong bộ nhớ lưu trữ của trình duyệt đó.
+
 ## v35 — Fix mở giao diện làm bài
 
 - Sửa `wwSyncBrowserRoute()` sử dụng rõ `window.history.pushState()` và `window.history.replaceState()`, tránh xung đột với biến `history` lưu lịch sử bài làm.
-- Tăng cache-busting của `app.js` lên `?v=35` ở bản v35. Bản v36 tiếp tục tăng cache-busting lên `?v=36` cho `app.js` và `styles.css`.
+- Bản v38 tăng cache-busting của `app.js` và `styles.css` lên `?v=38` để trình duyệt tải giao diện sổ tay ghi chú AI mới.
 - Không thay đổi dữ liệu, API key, cấu hình Render hay cơ sở dữ liệu.
 
 # WriteWiser v34 — SEO routes & Google Search Console
 
 Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để triển khai nhiều người dùng trên hosting từ xa.
+
 
 ## Chia sẻ lên Facebook
 - Trang chính và trang hiệu chuẩn có Open Graph/Twitter Card metadata với ảnh xem trước `assets/og-image-v30.png` (1200×630).
