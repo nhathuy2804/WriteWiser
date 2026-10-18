@@ -34,7 +34,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon-180.png">
   <link rel="manifest" href="/site.webmanifest">
   <title>__WW_SEO_TITLE__</title>
-  <link rel="stylesheet" href="/styles.css?v=39">
+  <link rel="stylesheet" href="/styles.css?v=41">
   <script type="application/ld+json">__WW_SEO_JSONLD__</script>
 </head>
 <body class="gate-locked">
@@ -60,12 +60,13 @@
   <div class="app-shell" id="appShell">
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="WriteWiser trang chủ"><img src="assets/writewiser-logo.png" alt="WriteWiser" class="brand-logo"></a>
+      <button type="button" class="mobile-nav-toggle" id="mobileNavToggle" aria-label="Mở menu điều hướng" aria-controls="sidebarNav" aria-expanded="false"><span aria-hidden="true">☰</span><span class="mobile-nav-toggle-text">Menu</span></button>
       <div class="profile-card">
         <div class="avatar" id="avatar">H</div>
         <div class="profile-copy"><strong id="profileName">Người học</strong><span>IELTS Writing</span></div>
         <button class="icon-button" id="profileButton" title="Đổi hồ sơ" aria-label="Đổi hồ sơ">⌄</button>
       </div>
-      <nav class="sidebar-nav" aria-label="Điều hướng chính">
+      <nav class="sidebar-nav" id="sidebarNav" aria-label="Điều hướng chính">
         <section class="nav-group" aria-labelledby="navStudyTitle">
           <div class="nav-label" id="navStudyTitle">KHÔNG GIAN HỌC</div>
           <button class="nav-item" data-view="library"><span>▦</span> Thư viện đề</button>
@@ -89,13 +90,14 @@
           <button class="nav-item" data-view="adminLessons" id="adminLessonsNav" hidden><span>▦</span> Quản lý thư viện</button>
           <button class="nav-item" data-view="adminSettings" id="adminSettingsNav" hidden><span>⚿</span> Bảo mật web</button>
         </section>
+        <div class="sidebar-bottom">
+          <div class="local-note"><span class="status-dot"></span><div><strong>Đồng bộ tài khoản</strong><small>Bài làm và đề riêng lưu trên máy chủ</small></div></div>
+          <button class="nav-item" id="exportButton"><span>↓</span> Xuất dữ liệu học tập</button>
+          <div class="sidebar-footer">v41 · nền tảng v13 · WriteWiser</div>
+        </div>
       </nav>
-      <div class="sidebar-bottom">
-        <div class="local-note"><span class="status-dot"></span><div><strong>Đồng bộ tài khoản</strong><small>Bài làm và đề riêng lưu trên máy chủ</small></div></div>
-        <button class="nav-item" id="exportButton"><span>↓</span> Xuất dữ liệu học tập</button>
-        <div class="sidebar-footer">v40 · nền tảng v13 · WriteWiser</div>
-      </div>
     </aside>
+    <button type="button" id="mobileNavBackdrop" class="mobile-nav-backdrop" aria-label="Đóng menu điều hướng" hidden></button>
 
     <main class="main">
       <header class="topbar">
@@ -272,7 +274,7 @@
       <dialog id="editBuiltinDialog" class="modal"><form id="editBuiltinForm"><div class="modal-kicker">ADMIN · EDIT LESSON</div><h2>Chỉnh sửa đề thư viện</h2><input id="editBuiltinId" type="hidden"><label>Task<select id="editBuiltinTask"><option>Task 1</option><option>Task 2</option></select></label><label>Tiêu đề<input id="editBuiltinTitle" required maxlength="180"></label><label>Đề bài<textarea id="editBuiltinQuestion" rows="4" required></textarea></label><label>Chủ đề<input id="editBuiltinTopic" required></label><label>Dạng bài<input id="editBuiltinType" required></label><label>URL nguồn<input id="editBuiltinSourceUrl" type="url"></label><label>Bài mẫu tiếng Anh · dòng trống để bắt đầu đoạn mới<textarea id="editBuiltinEnglish" rows="7" required></textarea></label><div class="paragraph-tools"><button type="button" class="button secondary" id="segmentBuiltinParagraphsButton">✦ AI tách theo format IELTS</button><small>Task 1: Introduction → Overview → Body 1 → Body 2. Task 2: Introduction → Body 1 → Body 2 → Conclusion. Quản lý trực tiếp ranh giới đoạn của bài dùng chung.</small></div><label>Bản dịch tiếng Việt · dòng trống khớp với đoạn tiếng Anh<textarea id="editBuiltinVietnamese" rows="7" required></textarea></label><div class="modal-actions"><button type="button" class="button secondary" id="cancelBuiltinEdit">Hủy</button><button class="button primary" type="submit">Lưu thay đổi cho mọi tài khoản</button></div><p id="editBuiltinStatus" class="import-status"></p></form></dialog>
       <dialog id="editPersonalLessonDialog" class="modal personal-edit-dialog"><form id="editPersonalLessonForm"><div class="modal-kicker">MY PRIVATE LESSON</div><h2>Chỉnh sửa đề riêng</h2><input id="editPersonalId" type="hidden"><label>Task<select id="editPersonalTask"><option>Task 1</option><option>Task 2</option></select></label><label>Tiêu đề<input id="editPersonalTitle" required maxlength="180"></label><label>Dạng bài<select id="editPersonalType"></select></label><label>Dạng bài khác<input id="editPersonalTypeOther" hidden maxlength="80"></label><label>Chủ đề<select id="editPersonalTopic"></select></label><label>Chủ đề khác<input id="editPersonalTopicOther" hidden maxlength="80"></label><label>Đề bài<textarea id="editPersonalQuestion" rows="4" required></textarea></label><label>URL nguồn (tùy chọn)<input id="editPersonalSourceUrl" type="url"></label><label>Bài mẫu tiếng Anh · dòng trống để bắt đầu đoạn mới<textarea id="editPersonalEnglish" rows="7" required></textarea></label><div class="paragraph-tools"><button type="button" class="button secondary" id="segmentPersonalParagraphsButton">✦ AI tách theo format IELTS</button><small>Task 1: Introduction → Overview → Body 1 → Body 2. Task 2: Introduction → Body 1 → Body 2 → Conclusion. Quản lý trực tiếp ranh giới đoạn của đề riêng này.</small></div><label>Bản dịch tiếng Việt · dòng trống khớp với đoạn tiếng Anh<textarea id="editPersonalVietnamese" rows="7" required></textarea></label><div class="modal-actions"><button type="button" class="button secondary" id="cancelPersonalEdit">Hủy</button><button type="submit" class="button primary">Lưu đề riêng</button></div><p id="editPersonalStatus" class="import-status" role="status"></p></form></dialog>
       <footer class="main-footer" aria-label="Thông tin và liên hệ WriteWiser">
-        <div class="footer-meta-row"><span>WriteWiser v40 · nền tảng v13</span><span>Học chủ động. Viết có chủ đích.</span></div>
+        <div class="footer-meta-row"><span>WriteWiser v41 · nền tảng v13</span><span>Học chủ động. Viết có chủ đích.</span></div>
         <p class="footer-disclaimer">Các đoạn trích bài mẫu và đề thi thuộc bản quyền của DOL IELTS (hoặc các chủ sở hữu tương ứng). Ứng dụng chỉ sử dụng trích đoạn ngắn phục vụ mục đích học tập phi lợi nhuận và luôn đính kèm liên kết nguồn gốc.</p>
         <div class="footer-contact">Liên hệ: <a href="https://www.facebook.com/people/WriteWiser/61595026757886/" target="_blank" rel="noopener noreferrer">Facebook WriteWiser ↗</a></div>
       </footer>
@@ -304,6 +306,6 @@
     </form>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=39"></script>
+  <script src="/app.js?v=41"></script>
 </body>
 </html>

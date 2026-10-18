@@ -1,4 +1,4 @@
-# WriteWiser v40 — Navigation Groups + Search Favicon
+# WriteWiser v41 — Mobile Navigation + Clear Group Labels
 
 - Lịch sử AI review khôi phục `question`, `task`, `lessonTitle` và bài nộp từ snapshot của lượt làm, không dùng nhầm đề đang mở trong thư viện. Kết quả cũ hiển thị snapshot đề/bài đã chấm; vùng bài viết ở chế độ xem lại là chỉ đọc.
 - Prompt AI ở chế độ Tự viết yêu cầu một JSON contract thống nhất, đủ 4 tiêu chí và điểm breakdown nguyên 0–9; Overall Band do server tính từ bốn tiêu chí và làm tròn nửa band.
@@ -315,3 +315,12 @@ Các đường dẫn lịch sử, dashboard, sổ tay lỗi sai, cài đặt và
 - Thu gọn thẻ trạng thái đồng bộ, nút xuất dữ liệu và chân trang để nhường chiều cao cho điều hướng.
 - Giữ kích thước nút đủ dễ bấm, rút ngắn khoảng cách giữa các nhóm.
 - Thêm tinh chỉnh cho cửa sổ thấp để tăng số mục có thể nhìn thấy cùng lúc.
+
+
+## v41 — Phân cấp tiêu đề nhóm và tối ưu điện thoại
+
+- Làm nổi bật tiêu đề nhóm điều hướng bằng nền màu trung tính, viền nhấn và chữ đậm; nhóm ADMIN có màu riêng.
+- Thêm menu dạng drawer cho điện thoại và máy tính bảng nhỏ, có nút mở/đóng, nền phủ, đóng bằng Escape hoặc chọn tab.
+- Giữ các tab quản trị ẩn với tài khoản không phải admin; mục đồng bộ và xuất dữ liệu nằm trong drawer để vẫn truy cập được trên điện thoại.
+- Điều chỉnh cỡ chạm, bố cục 1 cột, form, thư viện, ghi chú, bảng và hộp thoại cho màn hình hẹp; giữ nguyên favicon cũ.
+- `/api/health` báo phiên bản `41-mobile-navigation`.

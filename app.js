@@ -1006,6 +1006,26 @@ function startChosenLessonMode(choice){
 // Static controls receive direct listeners, while lesson cards are dynamic and
 // use delegation. This avoids relying on capture-phase propagation inside <dialog>.
 window.addEventListener("popstate",()=>{wwApplyRouteMetadata(window.location.pathname);if(document.body.classList.contains("gate-open"))wwApplyRouteFromLocation();});
+// Responsive navigation drawer for mobile and small tablets.
+const mobileNavToggle=$("mobileNavToggle");
+const mobileNavBackdrop=$("mobileNavBackdrop");
+const sidebarNav=$("sidebarNav");
+function setMobileNavOpen(open,restoreFocus=false){
+  const shouldOpen=!!open&&window.matchMedia("(max-width: 820px)").matches;
+  document.body.classList.toggle("mobile-nav-open",shouldOpen);
+  if(mobileNavToggle){mobileNavToggle.setAttribute("aria-expanded",String(shouldOpen));mobileNavToggle.setAttribute("aria-label",shouldOpen?"Đóng menu điều hướng":"Mở menu điều hướng");}
+  if(mobileNavBackdrop)mobileNavBackdrop.hidden=!shouldOpen;
+  if(shouldOpen){
+    const firstItem=sidebarNav?.querySelector(".nav-item:not([hidden])");
+    if(firstItem)window.setTimeout(()=>firstItem.focus({preventScroll:true}),40);
+  }else if(restoreFocus&&mobileNavToggle){mobileNavToggle.focus({preventScroll:true});}
+}
+mobileNavToggle?.addEventListener("click",()=>setMobileNavOpen(!document.body.classList.contains("mobile-nav-open")));
+mobileNavBackdrop?.addEventListener("click",()=>setMobileNavOpen(false,true));
+sidebarNav?.querySelectorAll(".nav-item").forEach(item=>item.addEventListener("click",()=>setMobileNavOpen(false)));
+document.addEventListener("keydown",event=>{if(event.key==="Escape"&&document.body.classList.contains("mobile-nav-open"))setMobileNavOpen(false,true);});
+window.matchMedia("(min-width: 821px)").addEventListener?.("change",event=>{if(event.matches)setMobileNavOpen(false);});
+
 document.querySelectorAll(".nav-item[data-view]").forEach(button=>button.addEventListener("click",event=>{
   event.preventDefault();switchView(button.dataset.view);
 }));
