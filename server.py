@@ -1318,7 +1318,8 @@ class Handler(SimpleHTTPRequestHandler):
         graph = {
             "@context": "https://schema.org",
             "@graph": [
-                {"@type": "WebSite", "@id": origin + "/#website", "url": origin + "/", "name": "WriteWiser", "inLanguage": "vi-VN", "description": SEO_PAGES["/"]["description"]},
+                {"@type": "WebSite", "@id": origin + "/#website", "url": origin + "/", "name": "WriteWiser", "alternateName": "WriteWiser IELTS", "inLanguage": "vi-VN", "description": SEO_PAGES["/"]["description"], "publisher": {"@id": origin + "/#organization"}},
+                {"@type": "Organization", "@id": origin + "/#organization", "name": "WriteWiser", "url": origin + "/", "logo": {"@type": "ImageObject", "url": origin + "/assets/favicon-512.png", "width": 512, "height": 512}, "sameAs": ["https://www.facebook.com/people/WriteWiser/61595026757886/"]},
                 {"@type": "WebPage", "@id": canonical_url + "#webpage", "url": origin + canonical_path, "name": page["title"], "description": page["description"], "inLanguage": "vi-VN", "isPartOf": {"@id": origin + "/#website"}},
             ]
         }
@@ -1343,6 +1344,21 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        # Serve the root favicon explicitly, without requiring a study-gate session.
+        # This stable root URL is used by Google Search and browser favicon crawlers.
+        if path == "/favicon.ico":
+            try:
+                favicon_bytes = (BASE / "favicon.ico").read_bytes()
+            except OSError:
+                return self.send_error(404, "Favicon not found")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/x-icon")
+            self.send_header("Content-Length", str(len(favicon_bytes)))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(favicon_bytes)
+            return
         # Do not let the static-file fallback expose backend/database/config files.
         blocked_names = {"draftwise.sqlite3", "server.py", "providers.env.example", "render.yaml", "README.md", "requirements.txt", "migrate_sqlite_to_postgres.py", ".gitignore", ".env"}
         if path.startswith("/resources/") or path.startswith("/.git/") or path.rsplit("/", 1)[-1] in blocked_names or path.startswith("/draftwise.sqlite3"):
@@ -1386,12 +1402,12 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "38-ai-notes", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "39-nav-favicon", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
                     master_prompt = prompt_path.read_text(encoding="utf-8")
-                    return self.send_json(200, {"masterPromptLoaded": bool(master_prompt.strip()), "promptChars": len(master_prompt), "promptSha256": hashlib.sha256(master_prompt.encode("utf-8")).hexdigest(), "promptFile": "resources/ielts_writing_master_prompt.txt", "appliedTo": "/api/writing-feedback", "criteriaBands": "integer 0-9", "overallBand": "nearest half-band", "version": "38"})
+                    return self.send_json(200, {"masterPromptLoaded": bool(master_prompt.strip()), "promptChars": len(master_prompt), "promptSha256": hashlib.sha256(master_prompt.encode("utf-8")).hexdigest(), "promptFile": "resources/ielts_writing_master_prompt.txt", "appliedTo": "/api/writing-feedback", "criteriaBands": "integer 0-9", "overallBand": "nearest half-band", "version": "39"})
                 except Exception as exc:
                     return self.send_json(500, {"masterPromptLoaded": False, "error": "Không đọc được prompt chấm bài: " + str(exc)[:180]})
             if path == "/api/admin/calibrations":
@@ -2239,11 +2255,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v38 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v39 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v38.")
+        print("\nStopping WriteWiser v39.")
     finally:
         server.server_close()
 
