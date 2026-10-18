@@ -1,4 +1,4 @@
-# WriteWiser v39 — Navigation Groups + Search Favicon
+# WriteWiser v40 — Navigation Groups + Search Favicon
 
 - Lịch sử AI review khôi phục `question`, `task`, `lessonTitle` và bài nộp từ snapshot của lượt làm, không dùng nhầm đề đang mở trong thư viện. Kết quả cũ hiển thị snapshot đề/bài đã chấm; vùng bài viết ở chế độ xem lại là chỉ đọc.
 - Prompt AI ở chế độ Tự viết yêu cầu một JSON contract thống nhất, đủ 4 tiêu chí và điểm breakdown nguyên 0–9; Overall Band do server tính từ bốn tiêu chí và làm tròn nửa band.
@@ -305,5 +305,13 @@ Các đường dẫn lịch sử, dashboard, sổ tay lỗi sai, cài đặt và
 
 - Thanh bên được tổ chức thành Không gian học, Tiến độ học, Tài khoản & Công cụ và ADMIN AREA. Nhóm quản trị chỉ hiển thị với tài khoản role `admin`.
 - Favicon được cung cấp ở URL gốc ổn định `/favicon.ico` và các PNG độ phân giải cao trong `/assets/`; endpoint gốc không cần mở khóa không gian học.
-- `/api/health` báo phiên bản `39-nav-favicon`.
+- `/api/health` báo phiên bản `40-sidebar-space`.
 - Sau khi triển khai, kiểm tra `https://writewiser.onrender.com/favicon.ico` và các PNG trong trình duyệt; trong Google Search Console, dùng URL Inspection để yêu cầu thu thập lại trang chủ. Google quyết định thời điểm hiển thị favicon và không bảo đảm xuất hiện ngay.
+
+
+## v40 — Tối ưu diện tích thanh điều hướng
+
+- Giảm khoảng trống phía trên logo và giữa logo với hồ sơ.
+- Thu gọn thẻ trạng thái đồng bộ, nút xuất dữ liệu và chân trang để nhường chiều cao cho điều hướng.
+- Giữ kích thước nút đủ dễ bấm, rút ngắn khoảng cách giữa các nhóm.
+- Thêm tinh chỉnh cho cửa sổ thấp để tăng số mục có thể nhìn thấy cùng lúc.
