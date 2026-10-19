@@ -1,4 +1,4 @@
-# WriteWiser v41 — Mobile Navigation + Clear Group Labels
+# WriteWiser v42 — Focused Brainstorm Review + Mobile Navigation
 
 - Lịch sử AI review khôi phục `question`, `task`, `lessonTitle` và bài nộp từ snapshot của lượt làm, không dùng nhầm đề đang mở trong thư viện. Kết quả cũ hiển thị snapshot đề/bài đã chấm; vùng bài viết ở chế độ xem lại là chỉ đọc.
 - Prompt AI ở chế độ Tự viết yêu cầu một JSON contract thống nhất, đủ 4 tiêu chí và điểm breakdown nguyên 0–9; Overall Band do server tính từ bốn tiêu chí và làm tròn nửa band.
@@ -324,3 +324,13 @@ Các đường dẫn lịch sử, dashboard, sổ tay lỗi sai, cài đặt và
 - Giữ các tab quản trị ẩn với tài khoản không phải admin; mục đồng bộ và xuất dữ liệu nằm trong drawer để vẫn truy cập được trên điện thoại.
 - Điều chỉnh cỡ chạm, bố cục 1 cột, form, thư viện, ghi chú, bảng và hộp thoại cho màn hình hẹp; giữ nguyên favicon cũ.
 - `/api/health` báo phiên bản `41-mobile-navigation`.
+
+
+## v42 — AI Brainstorm chỉ chấm từ vựng và độ sát đề
+
+- AI Brainstorm chỉ rà soát lựa chọn từ/cụm từ, nghĩa/collocation trong ngữ cảnh và mức độ liên quan của idea đến đề bài; không chấm hoặc sửa grammar, spelling, câu chưa hoàn chỉnh hay dấu câu.
+- Đoạn cần chỉnh được trích chính xác theo từ/cụm nhỏ nhất có vấn đề, đánh dấu đỏ trong phần văn bản gốc và đề xuất thay thế màu xanh ở bên cạnh. Có nút áp dụng các thay đổi mà vẫn giữ nguyên phần còn lại.
+- Mỗi trường đã xem xét mà không có vấn đề được đánh dấu xanh “Đã phù hợp”.
+- Phần kết luận liệt kê từ/cụm dùng tốt, từ/cụm cần sửa, idea phù hợp, idea chưa sát đề và các chỗ cần sửa.
+- Trường tùy chọn Example/Explain 2 để trống được bỏ qua hoàn toàn, không chấm và không tự điền. AI chỉ gợi ý trường bắt buộc còn trống (Idea/Explain 1).
+- `/api/health` báo phiên bản `42-brainstorm-focused-review`.

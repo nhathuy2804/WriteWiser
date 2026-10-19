@@ -1402,7 +1402,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "41-mobile-navigation", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "42-brainstorm-focused-review", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -1949,47 +1949,217 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
             mindmap = data.get("mindmap", {})
             if task not in ("Task 1", "Task 2") or not isinstance(question, str) or not question.strip() or len(question) > 5000 or not isinstance(mindmap, dict):
                 return self.send_json(400, {"error": "Đề bài hoặc mindmap không hợp lệ."})
+
             def flat_map(obj, prefix=""):
-                out={}
-                if isinstance(obj,dict):
-                    for k,v in obj.items():
-                        if k in ("corrections","filled","reviewSummary","reviewedAt","schemaVersion","expansion"): continue
-                        path=f"{prefix}.{k}" if prefix else k
-                        if isinstance(v,dict): out.update(flat_map(v,path))
-                        elif isinstance(v,str): out[path]=v[:2500]
+                out = {}
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        if k in ("corrections", "filled", "reviewSummary", "reviewData", "fieldReviews", "reviewedAt", "schemaVersion", "expansion"):
+                            continue
+                        field_path = f"{prefix}.{k}" if prefix else k
+                        if isinstance(v, dict):
+                            out.update(flat_map(v, field_path))
+                        elif isinstance(v, str):
+                            out[field_path] = v[:2500]
                 return out
-            fields=flat_map(mindmap)
-            # Only analyze the currently selected secondary branch (Example OR Explain 2), not hidden alternatives.
-            for body_name in ("body1","body2"):
-                body_value=mindmap.get(body_name,{}) if isinstance(mindmap,dict) else {}
-                if not isinstance(body_value,dict): continue
-                for idea_name in ("idea1","idea2"):
-                    idea_value=body_value.get(idea_name,{})
-                    if isinstance(idea_value,dict):
-                        prefix=f"{body_name}.{idea_name}."
-                        if idea_value.get("expansion","example")=="example": fields.pop(prefix+"explain2",None)
-                        else: fields.pop(prefix+"example",None)
-            if len(fields)>30:
+
+            all_fields = flat_map(mindmap)
+            # Only analyse the visible alternative (Example OR Explain 2). Never assess a hidden branch.
+            for body_name in ("body1", "body2"):
+                body_value = mindmap.get(body_name, {}) if isinstance(mindmap, dict) else {}
+                if not isinstance(body_value, dict):
+                    continue
+                for idea_name in ("idea1", "idea2"):
+                    idea_value = body_value.get(idea_name, {})
+                    if isinstance(idea_value, dict):
+                        prefix = f"{body_name}.{idea_name}."
+                        if idea_value.get("expansion", "example") == "example":
+                            all_fields.pop(prefix + "explain2", None)
+                        else:
+                            all_fields.pop(prefix + "example", None)
+
+            # Content and Explain 1 are the required brainstorm fields and can still receive suggestions.
+            # An empty optional Example/Explain 2 is omitted entirely: it is not reviewed or auto-filled.
+            required_suffixes = (".content", ".explain1")
+            fields = {
+                key: value for key, value in all_fields.items()
+                if value.strip() or key.endswith(required_suffixes)
+            }
+            nonempty_fields = {key: value for key, value in fields.items() if value.strip()}
+            required_blank_paths = [key for key, value in fields.items() if not value.strip() and key.endswith(required_suffixes)]
+            if len(fields) > 30:
                 return self.send_json(400, {"error": "Mindmap có quá nhiều trường."})
+
             criterion = "Task Achievement (TA)" if task == "Task 1" else "Task Response (TR)"
-            system = f"""Bạn là huấn luyện viên IELTS Writing chuyên đánh giá dàn ý sơ bộ, không phải bài luận hoàn chỉnh. Trả lời tiếng Việt, không chấm band cho mindmap và KHÔNG chấm gắt. Đánh giá ý tưởng theo khía cạnh liên quan đề, độ bao phủ yêu cầu, mức phát triển/sâu sắc và tính hỗ trợ cho lập trường; dùng nguyên tắc {criterion} trong IELTS Writing band descriptors. Với Task 1, xem xét khả năng chọn/nhóm đặc điểm chính, overview và tính chính xác của dữ liệu. Với Task 2, xem xét trả lời đủ các phần của câu hỏi, lập trường rõ, ý chính liên quan và được phát triển hợp lý. Vì đây là bản nháp, hãy chấp nhận viết tắt, cụm từ, tiếng Việt xen tiếng Anh, mũi tên, bullet và câu chưa hoàn chỉnh; KHÔNG trừ điểm vì ngữ pháp, chính tả hoặc thiếu câu hoàn chỉnh trừ khi làm ý nghĩa không rõ. Không tự bịa số liệu Task 1. Không biến nhận xét thành bài giảng dài. Nếu một ô có ý tưởng đúng, giữ nguyên. Chỉ đề xuất sửa nhẹ khi ý sai, mơ hồ, trùng lặp, nông hoặc chưa trả lời đề. Nếu ô trống, hãy tự gợi ý một ý ngắn gọn phù hợp; không yêu cầu người dùng điền lại đề. Đề bài là nguồn sự thật. Trả JSON duy nhất theo schema: {{"summary":"Tối đa 2 câu tóm tắt ưu tiên liên quan đề/độ sâu/độ bao phủ.","fill_blanks":{{"body1.idea1.content":"gợi ý ý chính","body1.idea1.explain1":"giải thích 1","body1.idea1.example":"ví dụ hoặc explain2 theo trường đang chọn",...}},"corrections":{{"body1.idea2.content":{{"corrected":"bản sửa ngắn","reason":"giải thích ngắn gọn bằng tiếng Việt"}}}}}}. Chỉ đưa vào fill_blanks những trường được cung cấp nhưng đang trống. Chỉ đưa vào corrections trường đã có nội dung và thực sự cần chỉnh; corrected phải giữ ý gốc tối đa có thể. Không trả trường không có trong dữ liệu."""
-            prompt = "Rà soát mindmap nháp này. Dùng TA/TR band descriptors chỉ cho relevance, coverage and development; tuyệt đối không chấm ngữ pháp của bản nháp.\n" + json.dumps({"task":task,"question":question,"question_type":str(data.get("type",""))[:100],"topic":str(data.get("topic",""))[:100],"mindmap":fields},ensure_ascii=False)
+            system = f"""Bạn là gia sư chuyên rà soát mindmap IELTS Writing sơ bộ. Phản hồi hoàn toàn bằng tiếng Việt.
+MỤC TIÊU DUY NHẤT: (1) từ/cụm từ tiếng Anh có phù hợp nghĩa, sắc thái, collocation và ngữ cảnh đề bài hay không; (2) ý tưởng có trực tiếp trả lời đề, đúng trọng tâm và hỗ trợ yêu cầu của đề hay không. Với {task}, chỉ dùng phần liên quan của tiêu chí {criterion} để xét tính liên quan/độ bao phủ của ý; không chấm band cho mindmap.
+TUYỆT ĐỐI KHÔNG CHẤM NGỮ PHÁP: không nhận xét tense, articles, subject-verb agreement, word order, câu thiếu chủ-vị, câu chưa hoàn chỉnh, fragment, dấu câu, spelling hoặc độ phức tạp câu. Mindmap được phép dùng từ khóa, cụm từ, mũi tên, tiếng Việt xen tiếng Anh và câu chưa hoàn chỉnh. Không đề xuất sửa grammar. Nếu từ/cụm từ và ý phù hợp thì đánh dấu đúng dù câu có lỗi ngữ pháp.
+
+ĐÁNH DẤU LỖI CHÍNH XÁC:
+- Mỗi issue phải có `segment` là một đoạn NGUYÊN VĂN, liên tục, chép chính xác và có thật trong giá trị trường gốc; chỉ chọn từ/cụm ngắn nhất thực sự có vấn đề, không tô đỏ toàn bộ trường/câu nếu chỉ sai một từ/cụm.
+- `replacement` chỉ sửa segment đó, giữ phần còn lại và ý định ban đầu tối đa có thể.
+- Chỉ flag vấn đề về lựa chọn từ/collocation/nghĩa hoặc ý lạc đề/sai trọng tâm. Không gọi grammar/spelling là issue.
+- Với ý sai trọng tâm, khoanh cụm ngắn nhất thể hiện ý sai. Chỉ dùng segment dài hơn khi thật sự không thể xác định một cụm nhỏ hơn.
+- Nếu trường đang có nội dung và không có vấn đề về hai mục tiêu trên, `issues` phải là [] và `status` là `correct`. Ghi nhận định tích cực bằng tiếng Việt.
+- Trường rỗng chỉ được gợi ý nếu là trường bắt buộc `content` hoặc `explain1`; trường optional đang rỗng đã được loại khỏi dữ liệu và không được nhắc đến/đánh giá/tự điền.
+
+TỔNG KẾT CUỐI BẮT BUỘC phải phân chia rõ: từ/cụm dùng chuẩn; từ/cụm cần sửa; idea phù hợp đề; idea chưa phù hợp; các sửa đổi ưu tiên. Chỉ trích dẫn cụm có thật trong bản nháp, không bịa từ người học đã viết.
+
+Trả về MỘT JSON object hợp lệ theo schema:
+{{
+ "overall_summary":"Tổng kết ngắn 2-4 câu, chỉ nói về từ vựng và độ sát đề; không nói grammar.",
+ "field_reviews":{{
+   "body1.idea1.content":{{"status":"correct|needs_revision","vocabulary_assessment":"appropriate|mixed|inappropriate|not_assessed","idea_relevance":"relevant|partly_relevant|irrelevant|not_assessed","note":"Nhận xét ngắn bằng tiếng Việt","issues":[{{"segment":"đoạn trích chính xác từ trường","replacement":"cụm thay thế","dimension":"vocabulary|idea","reason":"lý do ngắn, không nhắc grammar"}}]}}
+ }},
+ "fill_required_blanks":{{"body1.idea1.content":"gợi ý ý chính ngắn gọn","body1.idea1.explain1":"gợi ý giải thích ngắn gọn"}},
+ "summary_categories":{{
+   "valid_vocabulary":[{{"path":"body1.idea1.explain1","segment":"cụm từ nguyên văn","reason":"vì sao dùng phù hợp"}}],
+   "vocabulary_to_fix":[{{"path":"body1.idea1.content","segment":"cụm từ nguyên văn","replacement":"cụm thay thế","reason":"lý do"}}],
+   "relevant_ideas":[{{"path":"body1.idea1.content","idea":"tóm tắt ngắn ý đã viết","reason":"điểm phù hợp với đề"}}],
+   "irrelevant_ideas":[{{"path":"body2.idea2.content","idea":"tóm tắt ngắn ý chưa phù hợp","reason":"vì sao chưa sát đề","suggestion":"hướng điều chỉnh ý"}}],
+   "changes_needed":[{{"path":"body1.idea1.content","segment":"cụm nguyên văn cần sửa","replacement":"cụm đề xuất","reason":"lý do"}}]
+ }}
+}}
+Chỉ trả field_reviews cho trường có nội dung; không trả đánh giá cho trường rỗng. Các path phải nằm trong danh sách fields được cung cấp. Chỉ gợi ý fill_required_blanks cho những path thuộc danh sách required_blank_paths. Mọi `segment` trong field_reviews và danh sách từ vựng phải là chuỗi con nguyên văn trong trường tương ứng. Nếu không có mục thuộc một danh sách tổng kết, trả [] cho danh sách đó. Không thêm band score, grammar feedback hay tiêu chí khác."""
+            prompt_data = {
+                "task": task,
+                "question": question,
+                "question_type": str(data.get("type", ""))[:100],
+                "topic": str(data.get("topic", ""))[:100],
+                "fields": fields,
+                "required_blank_paths": required_blank_paths,
+                "focus": ["từ vựng/collocation phù hợp ngữ cảnh", "ý tưởng sát yêu cầu đề"],
+                "excluded": ["ngữ pháp", "spelling", "độ hoàn chỉnh câu", "dấu câu"]
+            }
             try:
-                review, model = ai_generate(system, prompt, max_output_tokens=5000)
-                if not isinstance(review, dict) or not isinstance(review.get("fill_blanks",{}),dict) or not isinstance(review.get("corrections",{}),dict):
-                    return self.send_json(502, {"error": "Gemini trả về cấu trúc Brainstorm không hợp lệ. Hãy thử lại."})
-                allowed=set(fields)
-                review["fill_blanks"]={k:str(v)[:1800] for k,v in review.get("fill_blanks",{}).items() if k in allowed and not fields.get(k," ").strip() and isinstance(v,str) and v.strip()}
-                clean={}
-                for k,v in review.get("corrections",{}).items():
-                    if k in allowed and fields.get(k," ").strip() and isinstance(v,dict) and isinstance(v.get("corrected"),str) and v["corrected"].strip():
-                        clean[k]={"corrected":v["corrected"][:1800],"reason":str(v.get("reason",""))[:500],"original":fields[k]}
-                review["corrections"]=clean
-                review["summary"]=str(review.get("summary",""))[:1200]
-                return self.send_json(200,{"review":review,"model":model,"criterion":criterion,"rubricFocus":"idea relevance, coverage, development"})
+                review, model = ai_generate(system, "Rà soát mindmap theo đúng phạm vi đã nêu, trả JSON theo schema. Dữ liệu:\n" + json.dumps(prompt_data, ensure_ascii=False), max_output_tokens=6000)
+                if not isinstance(review, dict) or not isinstance(review.get("field_reviews", {}), dict):
+                    return self.send_json(502, {"error": "AI trả về cấu trúc Brainstorm không hợp lệ. Hãy thử lại."})
+
+                # Strictly validate paths and exact source segments so only small, real excerpts get highlighted.
+                # Reject AI comments that drift back into grammar/spelling feedback despite the prompt.
+                def mentions_grammar_feedback(text):
+                    return bool(re.search(r"\b(grammar|grammatical|spelling|punctuation|tense|article|articles|subject.?verb|word order|fragment)\b|ngữ pháp|chính tả|dấu câu|mạo từ|chia động từ|trật tự từ|câu thiếu chủ", str(text or ""), re.IGNORECASE))
+                def safe_scope_comment(text, fallback):
+                    text = str(text or "")[:600]
+                    return fallback if mentions_grammar_feedback(text) else text
+
+                clean_field_reviews = {}
+                for field_path, item in review.get("field_reviews", {}).items():
+                    original = nonempty_fields.get(field_path)
+                    if not original or not isinstance(item, dict):
+                        continue
+                    clean_issues = []
+                    for issue in item.get("issues", []) if isinstance(item.get("issues", []), list) else []:
+                        if not isinstance(issue, dict):
+                            continue
+                        segment = str(issue.get("segment", ""))[:500]
+                        replacement = str(issue.get("replacement", ""))[:500]
+                        dimension = str(issue.get("dimension", "vocabulary"))
+                        reason_text = str(issue.get("reason", ""))[:400]
+                        if not segment or segment not in original or not replacement.strip() or mentions_grammar_feedback(reason_text):
+                            continue
+                        if dimension not in ("vocabulary", "idea"):
+                            dimension = "vocabulary"
+                        clean_issues.append({
+                            "segment": segment,
+                            "replacement": replacement,
+                            "dimension": dimension,
+                            "reason": reason_text
+                        })
+                    status = "needs_revision" if clean_issues else "correct"
+                    vocabulary_assessment = str(item.get("vocabulary_assessment", "not_assessed"))
+                    if vocabulary_assessment not in ("appropriate", "mixed", "inappropriate", "not_assessed"):
+                        vocabulary_assessment = "not_assessed"
+                    idea_relevance = str(item.get("idea_relevance", "not_assessed"))
+                    if idea_relevance not in ("relevant", "partly_relevant", "irrelevant", "not_assessed"):
+                        idea_relevance = "not_assessed"
+                    clean_field_reviews[field_path] = {
+                        "status": status,
+                        "vocabulary_assessment": vocabulary_assessment,
+                        "idea_relevance": idea_relevance,
+                        "note": safe_scope_comment(item.get("note", ""), "Không phát hiện vấn đề cần sửa ngoài phạm vi từ vựng và độ sát đề."),
+                        "issues": clean_issues
+                    }
+
+                # Return an explicit status for every populated, visible field. Never assess optional blanks.
+                for field_path in nonempty_fields:
+                    clean_field_reviews.setdefault(field_path, {
+                        "status": "correct",
+                        "vocabulary_assessment": "not_assessed",
+                        "idea_relevance": "not_assessed",
+                        "note": "Không có điểm cần sửa được ghi nhận về lựa chọn từ/cụm từ hoặc độ sát đề. Ngữ pháp không được chấm.",
+                        "issues": []
+                    })
+
+                fill_source = review.get("fill_required_blanks", {})
+                clean_fill = {}
+                if isinstance(fill_source, dict):
+                    for field_path, value in fill_source.items():
+                        if field_path in required_blank_paths and isinstance(value, str) and value.strip():
+                            clean_fill[field_path] = value.strip()[:1200]
+
+                def clean_summary_items(key, requires_text_field=False):
+                    source_items = review.get("summary_categories", {}).get(key, []) if isinstance(review.get("summary_categories", {}), dict) else []
+                    out = []
+                    if not isinstance(source_items, list):
+                        return out
+                    for item in source_items[:30]:
+                        if not isinstance(item, dict):
+                            continue
+                        field_path = str(item.get("path", ""))
+                        original = nonempty_fields.get(field_path)
+                        if not original:
+                            continue
+                        cleaned = {"path": field_path}
+                        if key in ("valid_vocabulary", "vocabulary_to_fix", "changes_needed"):
+                            segment = str(item.get("segment", ""))[:500]
+                            if not segment or segment not in original:
+                                continue
+                            cleaned["segment"] = segment
+                        elif key in ("relevant_ideas", "irrelevant_ideas"):
+                            if not field_path.endswith(".content"):
+                                continue
+                            cleaned["idea"] = safe_scope_comment(str(item.get("idea", ""))[:500], original[:500]) or original[:500]
+                        if key in ("vocabulary_to_fix", "changes_needed"):
+                            replacement = str(item.get("replacement", ""))[:500]
+                            if not replacement.strip():
+                                continue
+                            cleaned["replacement"] = replacement
+                        if key == "irrelevant_ideas":
+                            cleaned["suggestion"] = safe_scope_comment(item.get("suggestion", ""), "Điều chỉnh ý theo từ khóa và yêu cầu trọng tâm của đề bài.")
+                        cleaned["reason"] = safe_scope_comment(item.get("reason", ""), "Nhận xét chỉ xét độ phù hợp của từ/cụm từ hoặc ý tưởng với đề bài.")
+                        out.append(cleaned)
+                    return out
+
+                category_keys = ("valid_vocabulary", "vocabulary_to_fix", "relevant_ideas", "irrelevant_ideas", "changes_needed")
+                summary_categories = {key: clean_summary_items(key) for key in category_keys}
+                # Derive missing summary entries from validated field-level results, without inventing source text.
+                for field_path, item in clean_field_reviews.items():
+                    original = nonempty_fields.get(field_path, "")
+                    for issue in item["issues"]:
+                        if issue["dimension"] == "vocabulary" and not any(x.get("path") == field_path and x.get("segment") == issue["segment"] for x in summary_categories["vocabulary_to_fix"]):
+                            summary_categories["vocabulary_to_fix"].append({"path": field_path, "segment": issue["segment"], "replacement": issue["replacement"], "reason": issue["reason"]})
+                        if not any(x.get("path") == field_path and x.get("segment") == issue["segment"] for x in summary_categories["changes_needed"]):
+                            summary_categories["changes_needed"].append({"path": field_path, **issue})
+                    if field_path.endswith(".content") and item.get("idea_relevance") in ("relevant", "partly_relevant") and not any(x.get("path") == field_path for x in summary_categories["relevant_ideas"]):
+                        summary_categories["relevant_ideas"].append({"path": field_path, "idea": original[:500], "reason": item.get("note", "Ý tưởng có liên quan đến đề.")})
+                    if field_path.endswith(".content") and item.get("idea_relevance") == "irrelevant" and not any(x.get("path") == field_path for x in summary_categories["irrelevant_ideas"]):
+                        summary_categories["irrelevant_ideas"].append({"path": field_path, "idea": original[:500], "reason": item.get("note", "Ý tưởng cần điều chỉnh để sát đề hơn."), "suggestion": "Quay lại từ khóa và yêu cầu trọng tâm trong đề bài."})
+                overall_summary = safe_scope_comment(str(review.get("overall_summary", ""))[:1600].strip(), "Tổng kết chỉ xét độ phù hợp của từ/cụm từ và mức độ sát đề của các ý tưởng.")
+                if not overall_summary:
+                    overall_summary = "Đã rà soát từ vựng và mức độ sát đề. Ngữ pháp không thuộc phạm vi đánh giá này."
+                normalized = {
+                    "overall_summary": overall_summary,
+                    "field_reviews": clean_field_reviews,
+                    "fill_required_blanks": clean_fill,
+                    "summary_categories": summary_categories
+                }
+                return self.send_json(200, {"review": normalized, "model": model, "criterion": criterion, "rubricFocus": "vocabulary appropriateness and idea relevance only"})
             except RuntimeError as e:
-                message=str(e); code=503 if "GEMINI_API_KEY" in message else (429 if "quota" in message.lower() else 502)
-                return self.send_json(code,{"error":message})
+                message = str(e)
+                code = 503 if "GEMINI_API_KEY" in message else (429 if "quota" in message.lower() else 502)
+                return self.send_json(code, {"error": message})
         if path == "/api/lesson-suggestions":
             user=self.session_user()
             if not user:return self.send_json(401,{"error":"Đăng nhập để dùng AI tạo gợi ý."})
@@ -2255,11 +2425,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v41 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v42 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v41.")
+        print("\nStopping WriteWiser v42.")
     finally:
         server.server_close()
 

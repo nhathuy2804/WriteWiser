@@ -494,3 +494,37 @@ dialog[open]{z-index:10010}dialog.dialog-fallback-open{position:fixed;inset:50% 
 }
 @media(prefers-reduced-motion:reduce){.sidebar-nav,.mobile-nav-backdrop{transition:none!important}}
 .sidebar-nav>.sidebar-bottom{margin-top:auto;flex-shrink:0}
+
+
+/* v42 — Brainstorm focused review: lexical suitability + idea relevance only */
+.brain-field-review{margin-top:9px;padding:10px;border:1px solid #dbe9dc;border-radius:9px;background:#f4faf4;display:grid;gap:8px;font-size:11px;line-height:1.6;min-width:0}
+.brain-field-review.is-correct{grid-template-columns:auto minmax(0,1fr);align-items:start;color:#17633b;border-color:#cce5d0;background:#eff9f0}
+.brain-field-review.is-correct strong{color:#17633b;font-size:11px;white-space:nowrap}
+.brain-field-review.is-correct span{color:#276749}
+.brain-field-review.needs-revision{border-color:#f0d0cc;background:#fffafa}
+.brain-review-caption{font-weight:750;color:#8f2d28;font-size:10px}
+.brain-reviewed-text{padding:8px;border:1px solid #eadfd9;border-radius:7px;background:#fff;font-size:12px;line-height:1.75;overflow-wrap:anywhere;white-space:pre-wrap;color:#55453c}
+.brain-wrong-segment{color:#a61f1a;background:#ffe0dc;text-decoration:underline;text-decoration-color:#c5352e;text-decoration-thickness:1.5px;border-radius:3px;padding:1px 0;font-weight:700}
+.brain-issue-list{display:grid;gap:7px}
+.brain-issue-row{display:grid;gap:3px;padding:7px;border-radius:7px;border:1px solid #f0e2db;background:#fff}
+.brain-issue-pair{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.brain-issue-wrong,.brain-summary-red{color:#a61f1a;background:#ffe8e5;border:1px solid #f1c9c4;border-radius:5px;padding:3px 6px;font-weight:700;overflow-wrap:anywhere}
+.brain-issue-arrow{color:#8c796f;font-weight:700}
+.brain-issue-correct,.brain-summary-green{color:#17633b;background:#e6f5e8;border:1px solid #c7e8cc;border-radius:5px;padding:3px 6px;font-weight:750;overflow-wrap:anywhere}
+.brain-issue-row small{font-size:10px;line-height:1.5;color:#716058}
+.brain-review-note{margin:0;color:#66564d}
+.brain-review-rest{margin:0;color:#276749;font-size:10px}
+.brain-field-review .apply-brain-segment-corrections{justify-self:start;min-height:32px;font-size:10px;padding:6px 9px}
+.brain-summary-overview{padding:12px 13px;margin-bottom:12px;border:1px solid #d9cbbc;border-left:4px solid #8b6b58;border-radius:8px;background:#fffaf4}
+.brain-summary-overview>strong{display:block;color:#574236;font-size:13px}
+.brain-summary-overview p{margin:5px 0;color:#51433c;line-height:1.65;font-size:12px}
+.brain-summary-overview small{font-size:10px;color:#79695f}
+.brain-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.brain-summary-section{padding:10px;border:1px solid #e6ddd3;border-radius:9px;background:#fffdfa;min-width:0}
+.brain-summary-section h4{margin:0 0 7px;color:#5d493e;font-size:11px;line-height:1.5}
+.brain-summary-section ul{margin:0;padding-left:18px;display:grid;gap:8px}
+.brain-summary-section li{padding-left:1px;font-size:11px;line-height:1.55;overflow-wrap:anywhere}
+.brain-summary-section li p{margin:3px 0;color:#6d5b50}
+.brain-summary-section li small{display:block;margin-top:3px;color:#8a7a70;font-size:9px}
+.brain-summary-empty{margin:0;color:#85766d;font-size:10px;line-height:1.5}
+@media(max-width:760px){.brain-summary-grid{grid-template-columns:minmax(0,1fr)}.brain-field-review.is-correct{grid-template-columns:minmax(0,1fr);gap:3px}.brain-issue-pair{align-items:flex-start}.brain-review-rest{font-size:10px}}
