@@ -482,16 +482,23 @@ function resolveStudySelection(preferredInputId){
 }
 function noteEscape(value){return escapeHtml(String(value||"")).replace(/\n/g,"<br>");}
 function updateVocabNotesCount(){const count=$("vocabNotesCount");if(count)count.textContent=String(currentUser?vocabNotes.length:guestVocabNotes.length);}
-async function generateSelectedVocabularyNote(preferredInputId,statusId,buttonId){
-  const button=$(buttonId),status=$(statusId);
-  const selection=resolveStudySelection(preferredInputId);
-  if(!selection?.text){if(status)status.textContent="Hãy bôi đen một từ, cụm từ, vế câu hoặc câu trước khi nhấn lưu.";showToast("Chưa có đoạn văn bản được chọn.");return;}
-  const selectedText=selection.text.trim();
-  if(selectedText.length>1800){if(status)status.textContent="Đoạn chọn quá dài. Hãy chọn ngắn hơn (tối đa 1.800 ký tự).";return;}
+async function generateVocabularyNoteFromText(options={}){
+  const button=options.buttonId?$(options.buttonId):null;
+  const status=options.statusId?$(options.statusId):null;
+  const selectedText=String(options.text||"").trim();
+  const context=String(options.context||"").trim().slice(0,1200);
+  const source=options.source||"selection";
+  if(!selectedText){
+    if(status)status.textContent=source==="manual"?"Hãy nhập một từ, cụm từ, cấu trúc hoặc câu để AI tạo ghi chú.":"Hãy bôi đen một từ, cụm từ, vế câu hoặc câu trước khi nhấn lưu.";
+    if(source==="manual")$("manualVocabNoteInput")?.focus();
+    else showToast("Chưa có nội dung để tạo ghi chú.");
+    return false;
+  }
+  if(selectedText.length>1800){if(status)status.textContent="Nội dung quá dài. Hãy rút gọn còn tối đa 1.800 ký tự.";return false;}
   if(button){button.disabled=true;button.dataset.oldText=button.textContent;button.textContent="AI đang tạo ghi chú…";}
-  if(status)status.textContent="Đang phân tích đoạn được chọn và tạo ghi chú tiếng Việt…";
+  if(status)status.textContent=source==="manual"?"AI đang phân tích nội dung bạn nhập và tạo ghi chú…":"Đang phân tích đoạn được chọn và tạo ghi chú tiếng Việt…";
   try{
-    const result=await api("/api/notes/generate",{method:"POST",body:JSON.stringify({selectedText,context:selection.context||"",lessonTitle:currentLesson?.title||"",task:currentLesson?.task||"",mode:practiceMode||"reverse"})});
+    const result=await api("/api/notes/generate",{method:"POST",body:JSON.stringify({selectedText,context,lessonTitle:String(options.lessonTitle||"").slice(0,200),task:String(options.task||"").slice(0,20),mode:String(options.mode||"manual").slice(0,30)})});
     const note=result.note;
     if(!note||!note.id)throw new Error("AI chưa trả về ghi chú hợp lệ.");
     if(currentUser){vocabNotes=[note,...vocabNotes.filter(item=>item.id!==note.id)];}
@@ -500,13 +507,24 @@ async function generateSelectedVocabularyNote(preferredInputId,statusId,buttonId
       try{localStorage.setItem(GUEST_VOCAB_NOTES_KEY,JSON.stringify(guestVocabNotes));}catch{throw new Error("Bộ nhớ trình duyệt đã đầy; không thể lưu ghi chú khách.");}
       vocabNotes=guestVocabNotes.slice();
     }
+    if(source==="manual"){
+      const searchInput=$("vocabNotesSearch"),filter=$("vocabNotesTypeFilter");
+      if(searchInput)searchInput.value="";
+      if(filter)filter.value="all";
+    }
     updateVocabNotesCount();
     if(!$("vocabularyNotesView")?.hidden)renderVocabularyNotes();
-    if(status)status.textContent=currentUser?"Đã tạo và lưu ghi chú vào tài khoản. Bạn có thể mở Sổ tay ghi chú AI để xem lại.":"Đã tạo ghi chú và lưu trên trình duyệt này. Đăng nhập để đồng bộ giữa các thiết bị.";
+    if(status)status.textContent=currentUser?"Đã tạo và lưu ghi chú vào tài khoản. Bạn có thể xem lại hoặc tìm ghi chú trong sổ tay.":"Đã tạo ghi chú và lưu trên trình duyệt này. Đăng nhập để đồng bộ giữa các thiết bị.";
     showToast(currentUser?"Đã lưu ghi chú AI vào tài khoản.":"Đã lưu ghi chú AI trên trình duyệt.");
-    lastStudySelection=null;
-  }catch(error){if(status)status.textContent="Chưa lưu được ghi chú: "+error.message;showToast("Tạo ghi chú thất bại: "+error.message);}
-  finally{if(button){button.disabled=false;button.textContent=button.dataset.oldText||"✦ Lưu đoạn bôi đen";delete button.dataset.oldText;}}
+    if(options.clearSelectionAfterSuccess)lastStudySelection=null;
+    return true;
+  }catch(error){if(status)status.textContent="Chưa lưu được ghi chú: "+error.message;showToast("Tạo ghi chú thất bại: "+error.message);return false;}
+  finally{if(button){button.disabled=false;button.textContent=button.dataset.oldText||"✦ Tạo ghi chú AI";delete button.dataset.oldText;}}
+}
+async function generateSelectedVocabularyNote(preferredInputId,statusId,buttonId){
+  const selection=resolveStudySelection(preferredInputId);
+  if(!selection?.text){const status=$(statusId);if(status)status.textContent="Hãy bôi đen một từ, cụm từ, vế câu hoặc câu trước khi nhấn lưu.";showToast("Chưa có đoạn văn bản được chọn.");return false;}
+  return generateVocabularyNoteFromText({text:selection.text,context:selection.context||"",lessonTitle:currentLesson?.title||"",task:currentLesson?.task||"",mode:practiceMode||"reverse",statusId,buttonId,source:"selection",clearSelectionAfterSuccess:true});
 }
 async function loadVocabularyNotes(){
   const generation=++vocabNotesLoadGeneration;
@@ -541,7 +559,7 @@ function renderVocabularyNotes(){
     const matchesType=type==="all"||String(note.category||"Cách diễn đạt").toLowerCase()===type.toLowerCase();
     return matchesSearch&&matchesType;
   });
-  if(!items.length){root.innerHTML=`<div class="empty-state"><strong>${vocabNotes.length?"Không tìm thấy ghi chú phù hợp":"Sổ tay ghi chú đang trống"}</strong>${vocabNotes.length?"Hãy thử từ khóa hoặc bộ lọc khác.":"Khi đang luyện, bôi đen từ/cụm từ/câu rồi nhấn “Lưu đoạn bôi đen”. AI sẽ tạo ghi chú và lưu tại đây."}</div>`;return;}
+  if(!items.length){root.innerHTML=`<div class="empty-state"><strong>${vocabNotes.length?"Không tìm thấy ghi chú phù hợp":"Sổ tay ghi chú đang trống"}</strong>${vocabNotes.length?"Hãy thử từ khóa hoặc bộ lọc khác.":"Bạn có thể tự nhập nội dung ở khung phía trên hoặc bôi đen từ/cụm từ/câu trong lúc luyện rồi chọn lưu ghi chú AI."}</div>`;return;}
   root.innerHTML=items.map(note=>{
     const date=note.createdAt?new Date(note.createdAt).toLocaleString("vi-VN"):"Vừa lưu";
     const provenance=[note.task,note.lessonTitle].filter(Boolean).join(" · ");
@@ -567,6 +585,12 @@ $("saveSelectedNoteButton")?.addEventListener("mousedown",event=>event.preventDe
 $("saveSelectedNoteButton")?.addEventListener("click",()=>generateSelectedVocabularyNote("answerInput","saveSelectedNoteStatus","saveSelectedNoteButton"));
 $("saveIndependentNoteButton")?.addEventListener("mousedown",event=>event.preventDefault());
 $("saveIndependentNoteButton")?.addEventListener("click",()=>generateSelectedVocabularyNote("independentEssayInput","saveIndependentNoteStatus","saveIndependentNoteButton"));
+$("createManualVocabNoteButton")?.addEventListener("click",async()=>{
+  const input=$("manualVocabNoteInput"),contextInput=$("manualVocabNoteContext");
+  const saved=await generateVocabularyNoteFromText({text:input?.value||"",context:contextInput?.value||"",lessonTitle:"Ghi chú tự nhập",task:"",mode:"manual",statusId:"manualVocabNoteStatus",buttonId:"createManualVocabNoteButton",source:"manual"});
+  if(saved){if(input)input.value="";if(contextInput)contextInput.value="";input?.focus();}
+});
+["manualVocabNoteInput","manualVocabNoteContext"].forEach(id=>$(id)?.addEventListener("keydown",event=>{if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)){event.preventDefault();$("createManualVocabNoteButton")?.click();}}));
 $("vocabNotesSearch")?.addEventListener("input",renderVocabularyNotes);
 $("vocabNotesTypeFilter")?.addEventListener("change",renderVocabularyNotes);
 $("refreshVocabNotesButton")?.addEventListener("click",loadVocabularyNotes);

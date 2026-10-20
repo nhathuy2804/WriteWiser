@@ -1402,7 +1402,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "42-brainstorm-focused-review", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "43-manual-ai-notes", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -1636,17 +1636,17 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/notes/generate":
             selected_text = str(data.get("selectedText", "")).strip()
             if not selected_text:
-                return self.send_json(400, {"error": "Hãy bôi đen một từ, cụm từ, vế câu hoặc câu trước khi lưu ghi chú."})
+                return self.send_json(400, {"error": "Hãy nhập hoặc chọn một từ, cụm từ, vế câu hoặc câu trước khi tạo ghi chú."})
             if len(selected_text) > 1800:
                 return self.send_json(413, {"error": "Đoạn chọn quá dài. Hãy chọn một từ, cụm từ, vế câu hoặc tối đa một vài câu."})
             context = str(data.get("context", "")).strip()[:1200]
             lesson_title = str(data.get("lessonTitle", "")).strip()[:200]
             task = str(data.get("task", "")).strip()[:20]
             mode = str(data.get("mode", "")).strip()[:30]
-            system_instruction = """Bạn là gia sư tiếng Anh học thuật cho người Việt đang học IELTS Writing. Hãy biến đoạn người học chọn thành một ghi chú có thể dùng để học lại. Chỉ trả về MỘT JSON object hợp lệ, không Markdown, đúng schema: {"expression":string,"category":string,"note":string,"meaning_vi":string,"usage":string,"example_en":string,"example_vi":string}.
+            system_instruction = """Bạn là gia sư tiếng Anh học thuật cho người Việt đang học IELTS Writing. Hãy biến nội dung người học cung cấp (do tự nhập hoặc chọn từ bài viết) thành một ghi chú có thể dùng để học lại. Chỉ trả về MỘT JSON object hợp lệ, không Markdown, đúng schema: {"expression":string,"category":string,"note":string,"meaning_vi":string,"usage":string,"example_en":string,"example_vi":string}.
 
 YÊU CẦU: (1) Đoạn được chọn có thể là từ đơn, cụm từ, mệnh đề, vế câu hoặc cả câu; xác định đúng loại và chọn độ sâu giải thích phù hợp. (2) Nếu đoạn chọn bằng tiếng Anh, giữ nguyên cách viết trong trường expression trừ khi cần nêu dạng chuẩn phổ biến hơn; nếu là tiếng Việt, đưa ra cách diễn đạt tiếng Anh tự nhiên, phù hợp ngữ cảnh IELTS ở trường expression. (3) meaning_vi phải giải thích nghĩa tiếng Việt sát ngữ cảnh, không chỉ dịch máy móc. (4) note là điểm ghi nhớ quan trọng, sắc thái nghĩa hoặc lý do cách diễn đạt này hữu ích; tránh lặp lại meaning_vi. (5) usage nêu cấu trúc, ngữ pháp, collocation, giới từ đi kèm và mức độ trang trọng khi phù hợp; không bịa quy tắc không chắc chắn. Với cả câu, giải thích cấu trúc đáng học. (6) example_en là một ví dụ tiếng Anh mới, tự nhiên, có thể áp dụng trong IELTS Writing, không sao chép nguyên đoạn được chọn; example_vi là bản dịch tiếng Việt chính xác của ví dụ. (7) Viết hoàn toàn bằng tiếng Việt cho note, meaning_vi và usage. Trường category phải đúng một trong các giá trị: Từ, Cụm từ, Mệnh đề / vế câu, Câu, Cách diễn đạt. Trả lời hữu ích nhưng súc tích. Không bịa ngữ cảnh; nếu ngữ cảnh chưa rõ, ghi rõ nghĩa phổ biến nhất."""
-            prompt = ("Hãy tạo ghi chú cho phần người học chọn dưới đây.\n\nPHẦN ĐƯỢC CHỌN:\n" + selected_text +
+            prompt = ("Hãy tạo ghi chú cho nội dung người học muốn học dưới đây. Nội dung có thể do người học tự nhập hoặc chọn từ bài viết.\n\nNỘI DUNG CẦN GHI CHÚ:\n" + selected_text +
                       "\n\nNGỮ CẢNH XUNG QUANH (có thể trống):\n" + (context or "Không có ngữ cảnh bổ sung") +
                       "\n\nBÀI LUYỆN: " + (lesson_title or "Không xác định") +
                       "\nTASK: " + (task or "Không xác định") +
@@ -2425,11 +2425,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v42 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v43 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v42.")
+        print("\nStopping WriteWiser v43.")
     finally:
         server.server_close()
 

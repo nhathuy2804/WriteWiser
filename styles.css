@@ -528,3 +528,23 @@ dialog[open]{z-index:10010}dialog.dialog-fallback-open{position:fixed;inset:50% 
 .brain-summary-section li small{display:block;margin-top:3px;color:#8a7a70;font-size:9px}
 .brain-summary-empty{margin:0;color:#85766d;font-size:10px;line-height:1.5}
 @media(max-width:760px){.brain-summary-grid{grid-template-columns:minmax(0,1fr)}.brain-field-review.is-correct{grid-template-columns:minmax(0,1fr);gap:3px}.brain-issue-pair{align-items:flex-start}.brain-review-rest{font-size:10px}}
+
+
+/* v43: create AI notes directly from user-entered content */
+.vocab-note-create-panel{margin:18px 0 22px;padding:clamp(16px,2.6vw,25px);border:1px solid #ded1c2;border-radius:18px;background:linear-gradient(135deg,#faf6ef 0%,#f3f1e8 100%);box-shadow:0 8px 28px rgba(71,53,45,.045);min-width:0}
+.vocab-note-create-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+.vocab-note-create-heading>div{min-width:0}
+.vocab-note-create-heading .eyebrow{margin-bottom:6px;color:#8e735e;font-size:10px;letter-spacing:1.2px;font-weight:800}
+.vocab-note-create-heading h2{margin:0;color:#49372e;font-size:clamp(19px,2.2vw,24px);line-height:1.3}
+.vocab-note-create-heading p{max-width:760px;margin:8px 0 0;color:#78695d;font-size:13px;line-height:1.65}
+.vocab-note-create-heading .tag{flex-shrink:0}
+.vocab-note-create-panel>label{display:block;margin:14px 0 7px;color:#4d3b30;font-size:12px;font-weight:750}
+.vocab-note-create-panel .field-hint{margin-left:5px;color:#938477;font-size:10px;font-weight:500}
+.vocab-note-create-panel textarea{display:block;width:100%;min-width:0;resize:vertical;border:1px solid #dfd4c8;border-radius:11px;background:rgba(255,255,255,.84);padding:12px 14px;color:#43352d;font:inherit;font-size:13px;line-height:1.65;outline:none;transition:border-color .18s,box-shadow .18s}
+.vocab-note-create-panel textarea:focus{border-color:#a88e76;box-shadow:0 0 0 3px rgba(168,142,118,.15)}
+.vocab-note-create-panel textarea::placeholder{color:#aa9c8f}
+.vocab-note-create-actions{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:14px}
+.vocab-note-create-actions .small{margin:0;color:#837569;font-size:11px;line-height:1.6;max-width:580px}
+.vocab-note-create-actions .button{flex-shrink:0;min-height:42px}
+.vocab-note-create-panel .import-status{margin:10px 0 0}
+@media(max-width:760px){.vocab-note-create-heading{gap:9px}.vocab-note-create-heading .tag{display:none}.vocab-note-create-actions{align-items:stretch;flex-direction:column}.vocab-note-create-actions .button{width:100%}.vocab-note-create-panel{padding:16px;border-radius:14px}.vocab-note-create-panel textarea{font-size:16px}}
