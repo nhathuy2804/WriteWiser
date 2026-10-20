@@ -576,3 +576,35 @@ dialog[open]{z-index:10010}dialog.dialog-fallback-open{position:fixed;inset:50% 
  .vocab-note-compact-row .button{padding:7px 9px;font-size:10px;min-height:33px}
  .vocab-note-expanded{padding:0 12px 13px}
 }
+
+
+/* v45: compact AI note rows show the expression and an explanation excerpt; manual creation is toggleable. */
+.vocab-notes-heading-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;flex-shrink:0}
+#manualVocabNotePanel[hidden]{display:none!important}
+.vocab-note-compact-row{grid-template-columns:auto minmax(130px,.95fr) minmax(0,1.35fr) auto auto}
+.vocab-note-preview{min-width:0;max-width:100%;margin:0;color:#78695d;font-size:12px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vocab-note-preview::after{content:none}
+@media(max-width:900px){
+ .vocab-note-compact-row{grid-template-columns:auto minmax(100px,.9fr) minmax(0,1.1fr) auto auto;gap:8px}
+ .vocab-note-compact-row .vocab-note-category{max-width:95px;font-size:10px}
+ .vocab-note-preview{font-size:11px}
+}
+@media(max-width:760px){
+ .vocab-notes-heading-actions{width:100%;justify-content:flex-start;margin-top:8px}
+ .vocab-notes-heading-actions .button{flex:1;min-width:0}
+}
+@media(max-width:520px){
+ .vocab-note-compact-row{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr) auto auto;gap:6px;padding:9px 8px;min-height:50px}
+ .vocab-note-compact-row .vocab-note-category{display:none}
+ .vocab-note-compact-row .vocab-note-expression{font-size:12px}
+ .vocab-note-preview{font-size:10px;line-height:1.35}
+ .vocab-note-compact-row .button{padding:7px 8px;font-size:10px;min-height:32px}
+ .vocab-notes-heading-actions{gap:6px}
+ .vocab-notes-heading-actions .button{font-size:11px;padding:9px 10px}
+}
+@media(max-width:360px){
+ .vocab-note-compact-row{grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr) auto;gap:6px}
+ .vocab-note-delete-button{display:none}
+ .vocab-note-compact-row .vocab-note-expression{font-size:11px}
+ .vocab-note-preview{font-size:10px}
+}

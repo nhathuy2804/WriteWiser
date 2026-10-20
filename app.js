@@ -559,17 +559,19 @@ function renderVocabularyNotes(){
     const matchesType=type==="all"||String(note.category||"Cách diễn đạt").toLowerCase()===type.toLowerCase();
     return matchesSearch&&matchesType;
   });
-  if(!items.length){root.innerHTML=`<div class="empty-state"><strong>${vocabNotes.length?"Không tìm thấy ghi chú phù hợp":"Sổ tay ghi chú đang trống"}</strong>${vocabNotes.length?"Hãy thử từ khóa hoặc bộ lọc khác.":"Bạn có thể tự nhập nội dung ở khung phía trên hoặc bôi đen từ/cụm từ/câu trong lúc luyện rồi chọn lưu ghi chú AI."}</div>`;return;}
+  if(!items.length){root.innerHTML=`<div class="empty-state"><strong>${vocabNotes.length?"Không tìm thấy ghi chú phù hợp":"Sổ tay ghi chú đang trống"}</strong>${vocabNotes.length?"Hãy thử từ khóa hoặc bộ lọc khác.":"Bạn có thể nhấn “Tự nhập ghi chú” để chủ động tạo ghi chú, hoặc bôi đen từ/cụm từ/câu trong lúc luyện rồi chọn lưu ghi chú AI."}</div>`;return;}
   root.innerHTML=items.map((note,index)=>{
     const date=note.createdAt?new Date(note.createdAt).toLocaleString("vi-VN"):"Vừa lưu";
     const provenance=[note.task,note.lessonTitle].filter(Boolean).join(" · ");
     const category=note.category||"Cách diễn đạt";
     const expression=note.expression||note.selected_text||"Ghi chú";
+    const explanation=[note.meaning_vi,note.note].filter(value=>String(value||"").trim()).join(" · ")||note.usage||note.example_vi||"Chưa có phần giải thích.";
     const detailsId=`vocabNoteDetails${index}`;
     return `<article class="vocab-note-card" data-note-card="${escapeHtml(note.id)}">
       <div class="vocab-note-compact-row">
         <span class="vocab-note-category" title="${escapeHtml(category)}">${escapeHtml(category)}</span>
         <h2 class="vocab-note-expression" title="${escapeHtml(expression)}">${escapeHtml(expression)}</h2>
+        <p class="vocab-note-preview" title="${escapeHtml(explanation)}">${escapeHtml(explanation)}</p>
         <button type="button" class="button secondary vocab-note-detail-button" data-note-details="${escapeHtml(note.id)}" aria-expanded="false" aria-controls="${detailsId}">Chi tiết</button>
         <button type="button" class="button danger-quiet vocab-note-delete-button" data-note-delete="${escapeHtml(note.id)}" aria-label="Xóa ghi chú ${escapeHtml(expression)}">Xóa</button>
       </div>
@@ -611,6 +613,15 @@ $("saveSelectedNoteButton")?.addEventListener("mousedown",event=>event.preventDe
 $("saveSelectedNoteButton")?.addEventListener("click",()=>generateSelectedVocabularyNote("answerInput","saveSelectedNoteStatus","saveSelectedNoteButton"));
 $("saveIndependentNoteButton")?.addEventListener("mousedown",event=>event.preventDefault());
 $("saveIndependentNoteButton")?.addEventListener("click",()=>generateSelectedVocabularyNote("independentEssayInput","saveIndependentNoteStatus","saveIndependentNoteButton"));
+$("toggleManualVocabNotePanel")?.addEventListener("click",()=>{
+  const panel=$("manualVocabNotePanel"),button=$("toggleManualVocabNotePanel");
+  if(!panel||!button)return;
+  const opening=panel.hidden;
+  panel.hidden=!opening;
+  button.setAttribute("aria-expanded",String(opening));
+  button.textContent=opening?"× Đóng phần nhập":"＋ Tự nhập ghi chú";
+  if(opening){panel.scrollIntoView({behavior:"smooth",block:"nearest"});window.setTimeout(()=>$("manualVocabNoteInput")?.focus({preventScroll:true}),150);}
+});
 $("createManualVocabNoteButton")?.addEventListener("click",async()=>{
   const input=$("manualVocabNoteInput"),contextInput=$("manualVocabNoteContext");
   const saved=await generateVocabularyNoteFromText({text:input?.value||"",context:contextInput?.value||"",lessonTitle:"Ghi chú tự nhập",task:"",mode:"manual",statusId:"manualVocabNoteStatus",buttonId:"createManualVocabNoteButton",source:"manual"});

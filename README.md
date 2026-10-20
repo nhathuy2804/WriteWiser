@@ -1,4 +1,4 @@
-# WriteWiser v44 — Compact AI Notes
+# WriteWiser v45 — Note Excerpts & Toggleable Manual Creation
 
 - Lịch sử AI review khôi phục `question`, `task`, `lessonTitle` và bài nộp từ snapshot của lượt làm, không dùng nhầm đề đang mở trong thư viện. Kết quả cũ hiển thị snapshot đề/bài đã chấm; vùng bài viết ở chế độ xem lại là chỉ đọc.
 - Prompt AI ở chế độ Tự viết yêu cầu một JSON contract thống nhất, đủ 4 tiêu chí và điểm breakdown nguyên 0–9; Overall Band do server tính từ bốn tiêu chí và làm tròn nửa band.
@@ -344,6 +344,11 @@ Các đường dẫn lịch sử, dashboard, sổ tay lỗi sai, cài đặt và
 - Có thể nhấn `Ctrl + Enter` hoặc `Cmd + Enter` trong các ô nhập để tạo ghi chú.
 - `/api/health` báo phiên bản `44-compact-ai-notes`.
 
+
+## v45 — Trích giải thích trong danh sách và bật/tắt nhập ghi chú
+- Mỗi hàng ghi chú hiển thị cụm từ/câu kèm một đoạn trích từ nghĩa tiếng Việt và ghi chú giải thích; nội dung dài được cắt một dòng bằng ellipsis CSS. Nút **Chi tiết** vẫn mở toàn bộ nội dung.
+- Phần **Tự nhập nội dung để tạo ghi chú** được ẩn mặc định và chỉ mở khi bấm **Tự nhập ghi chú**; trạng thái mở/đóng được công bố qua `aria-expanded`.
+- Ghi chú, API, database và chức năng lưu hiện có không đổi. `/api/health` báo phiên bản `45-note-preview-toggle`.
 
 ## v44 — Sổ tay ghi chú AI dạng gọn
 - Danh sách ghi chú hiển thị mỗi mục trên một dòng, phần từ/cụm từ dài tự rút gọn với dấu ba chấm.
