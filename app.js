@@ -560,12 +560,38 @@ function renderVocabularyNotes(){
     return matchesSearch&&matchesType;
   });
   if(!items.length){root.innerHTML=`<div class="empty-state"><strong>${vocabNotes.length?"Không tìm thấy ghi chú phù hợp":"Sổ tay ghi chú đang trống"}</strong>${vocabNotes.length?"Hãy thử từ khóa hoặc bộ lọc khác.":"Bạn có thể tự nhập nội dung ở khung phía trên hoặc bôi đen từ/cụm từ/câu trong lúc luyện rồi chọn lưu ghi chú AI."}</div>`;return;}
-  root.innerHTML=items.map(note=>{
+  root.innerHTML=items.map((note,index)=>{
     const date=note.createdAt?new Date(note.createdAt).toLocaleString("vi-VN"):"Vừa lưu";
     const provenance=[note.task,note.lessonTitle].filter(Boolean).join(" · ");
     const category=note.category||"Cách diễn đạt";
-    return `<article class="vocab-note-card" data-note-card="${escapeHtml(note.id)}"><div class="vocab-note-card-top"><span class="vocab-note-category">${escapeHtml(category)}</span><time>${escapeHtml(date)}</time></div><h2>${escapeHtml(note.expression||note.selected_text||"Ghi chú")}</h2><section><h3>Ý nghĩa tiếng Việt</h3><p>${noteEscape(note.meaning_vi)}</p></section>${note.note?`<section><h3>Ghi chú cần nhớ</h3><p>${noteEscape(note.note)}</p></section>`:""}<section><h3>Cách dùng</h3><p>${noteEscape(note.usage)}</p></section><section class="vocab-note-example"><h3>Ví dụ</h3><p class="vocab-example-en">${noteEscape(note.example_en)}</p>${note.example_vi?`<p class="vocab-example-vi">${noteEscape(note.example_vi)}</p>`:""}</section>${provenance?`<p class="vocab-note-source">${escapeHtml(provenance)}</p>`:""}<div class="vocab-note-actions"><button type="button" class="button secondary" data-note-copy="${escapeHtml(note.id)}">Sao chép ghi chú</button><button type="button" class="button danger-quiet" data-note-delete="${escapeHtml(note.id)}">Xóa</button></div></article>`;
+    const expression=note.expression||note.selected_text||"Ghi chú";
+    const detailsId=`vocabNoteDetails${index}`;
+    return `<article class="vocab-note-card" data-note-card="${escapeHtml(note.id)}">
+      <div class="vocab-note-compact-row">
+        <span class="vocab-note-category" title="${escapeHtml(category)}">${escapeHtml(category)}</span>
+        <h2 class="vocab-note-expression" title="${escapeHtml(expression)}">${escapeHtml(expression)}</h2>
+        <button type="button" class="button secondary vocab-note-detail-button" data-note-details="${escapeHtml(note.id)}" aria-expanded="false" aria-controls="${detailsId}">Chi tiết</button>
+        <button type="button" class="button danger-quiet vocab-note-delete-button" data-note-delete="${escapeHtml(note.id)}" aria-label="Xóa ghi chú ${escapeHtml(expression)}">Xóa</button>
+      </div>
+      <div class="vocab-note-expanded" id="${detailsId}" hidden>
+        <div class="vocab-note-detail-meta"><time>${escapeHtml(date)}</time>${provenance?`<span>${escapeHtml(provenance)}</span>`:""}</div>
+        <section><h3>Ý nghĩa tiếng Việt</h3><p>${noteEscape(note.meaning_vi)||"Chưa có nghĩa tiếng Việt."}</p></section>
+        ${note.note?`<section><h3>Ghi chú cần nhớ</h3><p>${noteEscape(note.note)}</p></section>`:""}
+        <section><h3>Cách dùng</h3><p>${noteEscape(note.usage)||"Chưa có hướng dẫn cách dùng."}</p></section>
+        <section class="vocab-note-example"><h3>Ví dụ</h3><p class="vocab-example-en">${noteEscape(note.example_en)||"Chưa có ví dụ."}</p>${note.example_vi?`<p class="vocab-example-vi">${noteEscape(note.example_vi)}</p>`:""}</section>
+        <div class="vocab-note-actions"><button type="button" class="button secondary" data-note-copy="${escapeHtml(note.id)}">Sao chép ghi chú</button></div>
+      </div>
+    </article>`;
   }).join("");
+  root.querySelectorAll("[data-note-details]").forEach(button=>button.addEventListener("click",()=>{
+    const card=button.closest(".vocab-note-card");
+    const details=card?.querySelector(".vocab-note-expanded");
+    if(!details)return;
+    const opening=details.hidden;
+    details.hidden=!opening;
+    button.setAttribute("aria-expanded",String(opening));
+    button.textContent=opening?"Thu gọn":"Chi tiết";
+  }));
   root.querySelectorAll("[data-note-delete]").forEach(button=>button.addEventListener("click",async()=>{
     const id=button.dataset.noteDelete;if(!id)return;
     if(!confirm("Xóa ghi chú này khỏi sổ tay?"))return;
@@ -577,7 +603,7 @@ function renderVocabularyNotes(){
   }));
   root.querySelectorAll("[data-note-copy]").forEach(button=>button.addEventListener("click",async()=>{
     const note=items.find(item=>item.id===button.dataset.noteCopy);if(!note)return;
-    const text=[note.expression,"Ý nghĩa: "+note.meaning_vi,note.note?"Ghi chú: "+note.note:"","Cách dùng: "+note.usage,"Ví dụ: "+note.example_en,note.example_vi?"Dịch: "+note.example_vi:""].filter(Boolean).join("\n\n");
+    const text=[note.expression||note.selected_text,"Ý nghĩa: "+note.meaning_vi,note.note?"Ghi chú: "+note.note:"","Cách dùng: "+note.usage,"Ví dụ: "+note.example_en,note.example_vi?"Dịch: "+note.example_vi:""].filter(Boolean).join("\n\n");
     try{await navigator.clipboard.writeText(text);showToast("Đã sao chép ghi chú.");}catch{showToast("Trình duyệt không cho phép sao chép lúc này.");}
   }));
 }

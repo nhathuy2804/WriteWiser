@@ -1,4 +1,4 @@
-# WriteWiser v43 — Manual AI Notes + Focused Brainstorm Review
+# WriteWiser v44 — Compact AI Notes
 
 - Lịch sử AI review khôi phục `question`, `task`, `lessonTitle` và bài nộp từ snapshot của lượt làm, không dùng nhầm đề đang mở trong thư viện. Kết quả cũ hiển thị snapshot đề/bài đã chấm; vùng bài viết ở chế độ xem lại là chỉ đọc.
 - Prompt AI ở chế độ Tự viết yêu cầu một JSON contract thống nhất, đủ 4 tiêu chí và điểm breakdown nguyên 0–9; Overall Band do server tính từ bốn tiêu chí và làm tròn nửa band.
@@ -342,4 +342,10 @@ Các đường dẫn lịch sử, dashboard, sổ tay lỗi sai, cài đặt và
 - Sử dụng lại `/api/notes/generate` và cơ chế lưu hiện có: ghi chú được lưu vào bảng `user_notes` của tài khoản đăng nhập hoặc vào localStorage khi dùng khách.
 - Giữ nguyên luồng bôi đen nội dung trong Luyện dịch ngược/Tự viết. Cả hai phương thức cùng tạo ghi chú theo schema gồm expression, category, note, meaning_vi, usage, example_en và example_vi.
 - Có thể nhấn `Ctrl + Enter` hoặc `Cmd + Enter` trong các ô nhập để tạo ghi chú.
-- `/api/health` báo phiên bản `43-manual-ai-notes`.
+- `/api/health` báo phiên bản `44-compact-ai-notes`.
+
+
+## v44 — Sổ tay ghi chú AI dạng gọn
+- Danh sách ghi chú hiển thị mỗi mục trên một dòng, phần từ/cụm từ dài tự rút gọn với dấu ba chấm.
+- Nút **Chi tiết** mở/thu gọn đầy đủ nghĩa, ghi chú cần nhớ, cách dùng, ví dụ song ngữ và thông tin nguồn.
+- Tìm kiếm, lọc loại, sao chép và xóa ghi chú vẫn được giữ nguyên.
