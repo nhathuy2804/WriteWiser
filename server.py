@@ -1402,7 +1402,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "45-note-preview-toggle", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "46-brainstorm-ta-tr-depth", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -1973,10 +1973,19 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
                     idea_value = body_value.get(idea_name, {})
                     if isinstance(idea_value, dict):
                         prefix = f"{body_name}.{idea_name}."
-                        if idea_value.get("expansion", "example") == "example":
+                        expansion = idea_value.get("expansion", "example")
+                        if expansion == "example":
+                            all_fields.pop(prefix + "explain2", None)
+                            all_fields.pop(prefix + "result", None)
+                        elif expansion == "explain2":
+                            all_fields.pop(prefix + "example", None)
+                            all_fields.pop(prefix + "result", None)
+                        elif expansion == "result":
+                            all_fields.pop(prefix + "example", None)
                             all_fields.pop(prefix + "explain2", None)
                         else:
-                            all_fields.pop(prefix + "example", None)
+                            all_fields.pop(prefix + "explain2", None)
+                            all_fields.pop(prefix + "result", None)
 
             # Content and Explain 1 are the required brainstorm fields and can still receive suggestions.
             # An empty optional Example/Explain 2 is omitted entirely: it is not reviewed or auto-filled.
@@ -1991,36 +2000,46 @@ YÊU CẦU QUAN TRỌNG VỀ HIỂN THỊ LỖI: với mỗi câu, incorrect_seg
                 return self.send_json(400, {"error": "Mindmap có quá nhiều trường."})
 
             criterion = "Task Achievement (TA)" if task == "Task 1" else "Task Response (TR)"
-            system = f"""Bạn là gia sư chuyên rà soát mindmap IELTS Writing sơ bộ. Phản hồi hoàn toàn bằng tiếng Việt.
-MỤC TIÊU DUY NHẤT: (1) từ/cụm từ tiếng Anh có phù hợp nghĩa, sắc thái, collocation và ngữ cảnh đề bài hay không; (2) ý tưởng có trực tiếp trả lời đề, đúng trọng tâm và hỗ trợ yêu cầu của đề hay không. Với {task}, chỉ dùng phần liên quan của tiêu chí {criterion} để xét tính liên quan/độ bao phủ của ý; không chấm band cho mindmap.
-TUYỆT ĐỐI KHÔNG CHẤM NGỮ PHÁP: không nhận xét tense, articles, subject-verb agreement, word order, câu thiếu chủ-vị, câu chưa hoàn chỉnh, fragment, dấu câu, spelling hoặc độ phức tạp câu. Mindmap được phép dùng từ khóa, cụm từ, mũi tên, tiếng Việt xen tiếng Anh và câu chưa hoàn chỉnh. Không đề xuất sửa grammar. Nếu từ/cụm từ và ý phù hợp thì đánh dấu đúng dù câu có lỗi ngữ pháp.
+            system = f"""Bạn là chuyên gia phân tích đề IELTS Writing và huấn luyện phát triển lập luận bằng mindmap. Phản hồi hoàn toàn bằng tiếng Việt, cụ thể, nghiêm túc và bám sát từng chữ trong đề.
 
-ĐÁNH DẤU LỖI CHÍNH XÁC:
-- Mỗi issue phải có `segment` là một đoạn NGUYÊN VĂN, liên tục, chép chính xác và có thật trong giá trị trường gốc; chỉ chọn từ/cụm ngắn nhất thực sự có vấn đề, không tô đỏ toàn bộ trường/câu nếu chỉ sai một từ/cụm.
-- `replacement` chỉ sửa segment đó, giữ phần còn lại và ý định ban đầu tối đa có thể.
-- Chỉ flag vấn đề về lựa chọn từ/collocation/nghĩa hoặc ý lạc đề/sai trọng tâm. Không gọi grammar/spelling là issue.
-- Với ý sai trọng tâm, khoanh cụm ngắn nhất thể hiện ý sai. Chỉ dùng segment dài hơn khi thật sự không thể xác định một cụm nhỏ hơn.
-- Nếu trường đang có nội dung và không có vấn đề về hai mục tiêu trên, `issues` phải là [] và `status` là `correct`. Ghi nhận định tích cực bằng tiếng Việt.
-- Trường rỗng chỉ được gợi ý nếu là trường bắt buộc `content` hoặc `explain1`; trường optional đang rỗng đã được loại khỏi dữ liệu và không được nhắc đến/đánh giá/tự điền.
+MỤC TIÊU ƯU TIÊN CAO NHẤT — TASK RESPONSE / TASK ACHIEVEMENT:
+1) Đọc kỹ toàn bộ câu hỏi, phân loại dạng đề, tách đề thành TỪNG yêu cầu nhỏ bắt buộc phải trả lời. Với Task 2, kiểm tra mọi phần như: nêu quan điểm đến mức nào, thảo luận cả hai phía, nguyên nhân, hệ quả, giải pháp, hai câu hỏi riêng, lợi/hại, so sánh, hoặc phạm vi đối tượng/thời gian. Không mặc định mọi đề chỉ cần “ý liên quan”; phải kiểm tra ý đó có thực sự trả lời câu hỏi được hỏi hay chỉ nói chung chung cùng chủ đề.
+2) Đối chiếu từng yêu cầu với cả 4 ý tưởng và các trường phát triển hiện có. Ghi rõ yêu cầu nào đã đáp ứng, đáp ứng một phần, hoặc bỏ sót; dẫn đường dẫn trường (Body/Idea/Explain/Example/Result) và nêu chính xác phần lập luận đang thiếu.
+3) Với MỖI Idea chính có nội dung, đánh giá: (a) có sát đề không; (b) có trực tiếp hỗ trợ câu trả lời/quan điểm không; (c) nếu viết thành đoạn thân bài thì chuỗi lập luận đã đủ sâu chưa: luận điểm → lý do/cơ chế (Explain) → minh họa cụ thể (Example khi cần) → hệ quả/kết quả (Result khi hữu ích). Không bắt buộc mọi ý đều phải có đủ cả ba Explain/Example/Result; chọn phần thiếu có giá trị nhất cho ý đó. Tránh gợi ý chung chung kiểu “cần giải thích thêm”. Hãy viết gợi ý nội dung cụ thể có thể đưa thẳng vào mindmap, không bịa số liệu, nghiên cứu hoặc sự kiện như dữ kiện thật.
+4) Ước lượng band TIỀM NĂNG riêng của {criterion} (TA cho Task 1, TR cho Task 2) NẾU bài viết được triển khai dựa đúng các ý brainstorm hiện có và được diễn đạt thành đoạn văn hợp lý, nhưng không được tự thêm luận điểm quan trọng chưa có trong mindmap. Ước lượng theo dải band nửa điểm, cho low_band, high_band và likely_band, đồng thời nêu bằng chứng và độ tin cậy. Đây chỉ là ước lượng sơ bộ khả năng đáp ứng TA/TR của kế hoạch ý tưởng, KHÔNG phải điểm bài viết thực tế, không phải Overall Writing Band và không phải điểm chính thức. Không đánh giá CC/LR/GRA.
+5) Nếu là Task 1, nhắc rõ giới hạn nếu mindmap không cung cấp đủ số liệu/biểu đồ/hình ảnh để kiểm tra việc chọn đặc điểm chính; không được bịa số liệu. Có thể đánh giá độ bao phủ dựa trên đề và phần đã nhập, nhưng phải hạ độ tin cậy khi thiếu dữ liệu trực quan.
 
-TỔNG KẾT CUỐI BẮT BUỘC phải phân chia rõ: từ/cụm dùng chuẩn; từ/cụm cần sửa; idea phù hợp đề; idea chưa phù hợp; các sửa đổi ưu tiên. Chỉ trích dẫn cụm có thật trong bản nháp, không bịa từ người học đã viết.
+PHÂN LOẠI ĐỘ SÁT ĐỀ VÀ ĐỘ SÂU:
+- Với mỗi yêu cầu đề: status = covered | partly_covered | missing. `supporting_paths` chỉ dẫn trường thực tế có liên quan. `evidence` tóm tắt hoặc trích đúng nội dung đã nhập; không bịa dẫn chứng. `gap` nêu phần còn thiếu; `revision` đưa hành động sửa rõ ràng.
+- Với mỗi Idea có nội dung: relevance = on_topic | partly_on_topic | off_topic; answer_status = answers | partly_answers | does_not_answer; depth = sufficient | needs_development | very_thin. “Cùng chủ đề” không đồng nghĩa “trả lời đúng câu hỏi”. Nếu lạc đề, giải thích tại sao không trả lời đúng yêu cầu nào và đề xuất hướng thay thế bám vào từ khóa/lệnh hỏi của đề.
+- Gợi ý phát triển mỗi ý tối đa 1–2 ưu tiên, với `recommendation_type` là explain | example | result | explain2 | revise_idea. `target_path` phải đúng một trường trong cùng Idea: content, explain1, example, explain2 hoặc result. Nếu ý lạc đề thì hướng dẫn sửa Idea, target_path có thể là trường content; không tự áp dụng thay người dùng. `suggested_text` phải là một câu/ý cụ thể, có thể đưa vào mindmap ngay. `reason` nói rõ nó vá lỗ hổng lập luận hoặc giúp trả lời phần nào của đề.
 
-Trả về MỘT JSON object hợp lệ theo schema:
+KHÔNG CHẤM NGỮ PHÁP:
+Không nhận xét tense, articles, subject-verb agreement, word order, câu thiếu chủ-vị, câu chưa hoàn chỉnh, fragment, dấu câu, spelling hoặc độ phức tạp câu. Mindmap được phép dùng từ khóa, mũi tên, tiếng Việt xen tiếng Anh và câu chưa hoàn chỉnh. Không đề xuất sửa grammar. Nếu có nhận xét từ vựng, chỉ xét từ/cụm tiếng Anh có phù hợp nghĩa, sắc thái, collocation và ngữ cảnh không.
+
+ĐÁNH DẤU LỖI TỪ VỰNG / LẠC ĐỀ:
+- Mỗi issue phải có `segment` là một đoạn NGUYÊN VĂN, liên tục, chép chính xác và có thật trong giá trị trường gốc; chỉ chọn từ/cụm ngắn nhất thực sự có vấn đề, không tô đỏ toàn bộ trường nếu chỉ sai một cụm.
+- `replacement` sửa tối thiểu segment đó. Với ý lạc đề, khoanh cụm ngắn nhất thể hiện ý sai và đưa cách thay thế bám đề khi có thể.
+- Chỉ flag vấn đề về lựa chọn từ/collocation/nghĩa hoặc ý không đáp ứng đề. Không gọi grammar/spelling là issue.
+- Trường rỗng chỉ được gợi ý nếu là trường bắt buộc content hoặc explain1; trường tùy chọn rỗng đã bị loại khỏi dữ liệu, tuyệt đối không đánh giá hay tự điền các trường đó.
+
+JSON BẮT BUỘC theo schema dưới đây. Mọi nhận xét phải gắn với câu hỏi và dữ liệu cụ thể, tránh lời khen/chê chung chung:
 {{
- "overall_summary":"Tổng kết ngắn 2-4 câu, chỉ nói về từ vựng và độ sát đề; không nói grammar.",
- "field_reviews":{{
-   "body1.idea1.content":{{"status":"correct|needs_revision","vocabulary_assessment":"appropriate|mixed|inappropriate|not_assessed","idea_relevance":"relevant|partly_relevant|irrelevant|not_assessed","note":"Nhận xét ngắn bằng tiếng Việt","issues":[{{"segment":"đoạn trích chính xác từ trường","replacement":"cụm thay thế","dimension":"vocabulary|idea","reason":"lý do ngắn, không nhắc grammar"}}]}}
- }},
- "fill_required_blanks":{{"body1.idea1.content":"gợi ý ý chính ngắn gọn","body1.idea1.explain1":"gợi ý giải thích ngắn gọn"}},
+ "overall_summary":"Kết luận 3–6 câu: đề yêu cầu gì, mức độ đáp ứng, lỗ hổng quan trọng nhất, ước lượng band TA/TR và cảnh báo đó là ước lượng mindmap.",
+ "question_analysis":{{"question_type":"...","core_demand":"...","coverage_conclusion":"...","requirements":[{{"requirement":"một yêu cầu riêng biệt trong đề","status":"covered|partly_covered|missing","supporting_paths":["body1.idea1.content"],"evidence":"dẫn chứng/paraphrase trung thành từ mindmap hoặc để trống nếu chưa có","gap":"phần thiếu hoặc lý do chưa đủ","revision":"hành động cụ thể để đáp ứng yêu cầu"}}]}},
+ "criterion_estimate":{{"criterion":"TA|TR","low_band":5.5,"high_band":6.0,"likely_band":6.0,"confidence":"low|medium|high","rationale":"lý do gắn với phạm vi đề, độ bao phủ, liên quan, phát triển ý","limitations":"giới hạn do đây mới là brainstorm, không phải bài viết hoàn chỉnh"}},
+ "idea_development":[{{"path":"body1.idea1.content","idea_summary":"tóm tắt trung thành Idea của người dùng","relevance":"on_topic|partly_on_topic|off_topic","answer_status":"answers|partly_answers|does_not_answer","depth":"sufficient|needs_development|very_thin","what_works":"phần lập luận có ích hiện tại","gap":"lỗ hổng cụ thể và yêu cầu đề chưa được xử lý","recommendation_type":"explain|example|result|explain2|revise_idea","target_path":"body1.idea1.example","suggested_text":"gợi ý nội dung cụ thể để thêm/sửa","reason":"vì sao phần này giúp ý trả lời đề tốt hơn"}}],
+ "field_reviews":{{"body1.idea1.content":{{"status":"correct|needs_revision","vocabulary_assessment":"appropriate|mixed|inappropriate|not_assessed","idea_relevance":"relevant|partly_relevant|irrelevant|not_assessed","note":"nhận xét ngắn bằng tiếng Việt, ưu tiên mức độ trả lời đề","issues":[{{"segment":"đoạn nguyên văn từ trường","replacement":"cụm thay thế","dimension":"vocabulary|idea","reason":"lý do gắn với đề"}}]}}}},
+ "fill_required_blanks":{{"body1.idea1.content":"gợi ý ngắn gọn cho ô bắt buộc còn trống","body1.idea1.explain1":"gợi ý giải thích ngắn gọn"}},
  "summary_categories":{{
-   "valid_vocabulary":[{{"path":"body1.idea1.explain1","segment":"cụm từ nguyên văn","reason":"vì sao dùng phù hợp"}}],
-   "vocabulary_to_fix":[{{"path":"body1.idea1.content","segment":"cụm từ nguyên văn","replacement":"cụm thay thế","reason":"lý do"}}],
-   "relevant_ideas":[{{"path":"body1.idea1.content","idea":"tóm tắt ngắn ý đã viết","reason":"điểm phù hợp với đề"}}],
-   "irrelevant_ideas":[{{"path":"body2.idea2.content","idea":"tóm tắt ngắn ý chưa phù hợp","reason":"vì sao chưa sát đề","suggestion":"hướng điều chỉnh ý"}}],
+   "valid_vocabulary":[{{"path":"body1.idea1.explain1","segment":"cụm nguyên văn","reason":"vì sao phù hợp"}}],
+   "vocabulary_to_fix":[{{"path":"body1.idea1.content","segment":"cụm nguyên văn","replacement":"cụm thay thế","reason":"lý do"}}],
+   "relevant_ideas":[{{"path":"body1.idea1.content","idea":"tóm tắt ngắn ý đã viết","reason":"điểm phù hợp với yêu cầu cụ thể của đề"}}],
+   "irrelevant_ideas":[{{"path":"body2.idea2.content","idea":"tóm tắt ngắn ý chưa phù hợp","reason":"yêu cầu nào bị bỏ lỡ/ý này không trả lời đề ra sao","suggestion":"hướng sửa bám đề"}}],
    "changes_needed":[{{"path":"body1.idea1.content","segment":"cụm nguyên văn cần sửa","replacement":"cụm đề xuất","reason":"lý do"}}]
  }}
 }}
-Chỉ trả field_reviews cho trường có nội dung; không trả đánh giá cho trường rỗng. Các path phải nằm trong danh sách fields được cung cấp. Chỉ gợi ý fill_required_blanks cho những path thuộc danh sách required_blank_paths. Mọi `segment` trong field_reviews và danh sách từ vựng phải là chuỗi con nguyên văn trong trường tương ứng. Nếu không có mục thuộc một danh sách tổng kết, trả [] cho danh sách đó. Không thêm band score, grammar feedback hay tiêu chí khác."""
+NGUYÊN TẮC: question_analysis.requirements phải bao quát từng phần mệnh lệnh/yêu cầu của đề, không gộp mất câu hỏi thứ hai. idea_development phải xem xét từng Idea chính không rỗng. Chỉ trích dẫn nội dung thực sự có trong mindmap. Không thêm band score ngoài criterion_estimate. Tất cả các trường là JSON hợp lệ, không có Markdown bên ngoài."""
             prompt_data = {
                 "task": task,
                 "question": question,
@@ -2028,11 +2047,11 @@ Chỉ trả field_reviews cho trường có nội dung; không trả đánh giá
                 "topic": str(data.get("topic", ""))[:100],
                 "fields": fields,
                 "required_blank_paths": required_blank_paths,
-                "focus": ["từ vựng/collocation phù hợp ngữ cảnh", "ý tưởng sát yêu cầu đề"],
-                "excluded": ["ngữ pháp", "spelling", "độ hoàn chỉnh câu", "dấu câu"]
+                "focus": ["tách đề thành từng yêu cầu bắt buộc", "đối chiếu từng yêu cầu với brainstorm", "ước lượng sơ bộ band TA/TR", "độ sâu từng Idea và gợi ý Explain/Example/Result", "từ vựng/collocation phù hợp ngữ cảnh"],
+                "excluded": ["ngữ pháp", "spelling", "độ hoàn chỉnh câu", "dấu câu", "Overall Writing Band"]
             }
             try:
-                review, model = ai_generate(system, "Rà soát mindmap theo đúng phạm vi đã nêu, trả JSON theo schema. Dữ liệu:\n" + json.dumps(prompt_data, ensure_ascii=False), max_output_tokens=6000)
+                review, model = ai_generate(system, "Rà soát mindmap theo đúng phạm vi đã nêu, trả JSON theo schema. Dữ liệu:\n" + json.dumps(prompt_data, ensure_ascii=False), max_output_tokens=8000)
                 if not isinstance(review, dict) or not isinstance(review.get("field_reviews", {}), dict):
                     return self.send_json(502, {"error": "AI trả về cấu trúc Brainstorm không hợp lệ. Hãy thử lại."})
 
@@ -2146,16 +2165,133 @@ Chỉ trả field_reviews cho trường có nội dung; không trả đánh giá
                         summary_categories["relevant_ideas"].append({"path": field_path, "idea": original[:500], "reason": item.get("note", "Ý tưởng có liên quan đến đề.")})
                     if field_path.endswith(".content") and item.get("idea_relevance") == "irrelevant" and not any(x.get("path") == field_path for x in summary_categories["irrelevant_ideas"]):
                         summary_categories["irrelevant_ideas"].append({"path": field_path, "idea": original[:500], "reason": item.get("note", "Ý tưởng cần điều chỉnh để sát đề hơn."), "suggestion": "Quay lại từ khóa và yêu cầu trọng tâm trong đề bài."})
-                overall_summary = safe_scope_comment(str(review.get("overall_summary", ""))[:1600].strip(), "Tổng kết chỉ xét độ phù hợp của từ/cụm từ và mức độ sát đề của các ý tưởng.")
+                # Normalize the new task-coverage, projected TA/TR band, and idea-depth assessment.
+                valid_brain_paths = {
+                    f"{body}.{idea}.{field}"
+                    for body in ("body1", "body2")
+                    for idea in ("idea1", "idea2")
+                    for field in ("content", "explain1", "example", "explain2", "result")
+                }
+                def safe_text(value, limit=900, fallback=""):
+                    return safe_scope_comment(str(value or "").strip()[:limit], fallback)
+
+                qa_src = review.get("question_analysis", {})
+                if not isinstance(qa_src, dict): qa_src = {}
+                clean_requirements = []
+                req_src = qa_src.get("requirements", [])
+                if isinstance(req_src, list):
+                    for req in req_src[:12]:
+                        if not isinstance(req, dict): continue
+                        status_value = str(req.get("status", "missing"))
+                        if status_value not in ("covered", "partly_covered", "missing"): status_value = "missing"
+                        paths = req.get("supporting_paths", [])
+                        if not isinstance(paths, list): paths = []
+                        clean_paths = [str(p) for p in paths if str(p) in nonempty_fields][:8]
+                        evidence = safe_text(req.get("evidence", ""), 700)
+                        # Evidence is presented as a summary, not a quotation. If no populated field supports it, suppress it.
+                        if evidence and not clean_paths:
+                            evidence = ""
+                        clean_requirements.append({
+                            "requirement": safe_text(req.get("requirement", ""), 450, "Một yêu cầu của đề"),
+                            "status": status_value,
+                            "supporting_paths": clean_paths,
+                            "evidence": evidence,
+                            "gap": safe_text(req.get("gap", ""), 700),
+                            "revision": safe_text(req.get("revision", ""), 700)
+                        })
+                question_analysis = {
+                    "question_type": safe_text(qa_src.get("question_type", ""), 250),
+                    "core_demand": safe_text(qa_src.get("core_demand", ""), 900),
+                    "coverage_conclusion": safe_text(qa_src.get("coverage_conclusion", ""), 900),
+                    "requirements": clean_requirements
+                }
+
+                band_src = review.get("criterion_estimate", {})
+                if not isinstance(band_src, dict): band_src = {}
+                def clean_band(value):
+                    try: num = float(value)
+                    except (TypeError, ValueError): return None
+                    if not (0 <= num <= 9): return None
+                    return round(num * 2) / 2
+                low_band = clean_band(band_src.get("low_band"))
+                high_band = clean_band(band_src.get("high_band"))
+                likely_band = clean_band(band_src.get("likely_band"))
+                if low_band is not None and high_band is not None and low_band > high_band:
+                    low_band, high_band = high_band, low_band
+                if low_band is not None and high_band is not None:
+                    likely_band = likely_band if likely_band is not None else round(((low_band + high_band) / 2) * 2) / 2
+                    likely_band = min(high_band, max(low_band, likely_band))
+                else:
+                    low_band = high_band = likely_band = None
+                confidence = str(band_src.get("confidence", "low"))
+                if confidence not in ("low", "medium", "high"): confidence = "low"
+                criterion_estimate = {
+                    "criterion": "TA" if task == "Task 1" else "TR",
+                    "low_band": low_band,
+                    "high_band": high_band,
+                    "likely_band": likely_band,
+                    "confidence": confidence,
+                    "rationale": safe_text(band_src.get("rationale", ""), 1300),
+                    "limitations": safe_text(band_src.get("limitations", ""), 900, "Đây chỉ là ước lượng từ mindmap, không phải điểm bài viết hoàn chỉnh.")
+                }
+
+                development_src = review.get("idea_development", [])
+                clean_development = []
+                if isinstance(development_src, list):
+                    for item in development_src[:8]:
+                        if not isinstance(item, dict): continue
+                        field_path = str(item.get("path", ""))
+                        if field_path not in valid_brain_paths or not field_path.endswith(".content"):
+                            continue
+                        original_idea = nonempty_fields.get(field_path, "")
+                        if not original_idea: continue
+                        relevance = str(item.get("relevance", "partly_on_topic"))
+                        if relevance not in ("on_topic", "partly_on_topic", "off_topic"): relevance = "partly_on_topic"
+                        answer_status = str(item.get("answer_status", "partly_answers"))
+                        if answer_status not in ("answers", "partly_answers", "does_not_answer"): answer_status = "partly_answers"
+                        depth = str(item.get("depth", "needs_development"))
+                        if depth not in ("sufficient", "needs_development", "very_thin"): depth = "needs_development"
+                        recommendation = str(item.get("recommendation_type", "explain"))
+                        if recommendation not in ("explain", "example", "result", "explain2", "revise_idea"): recommendation = "explain"
+                        target_path = str(item.get("target_path", ""))
+                        allowed_for_idea = {field_path, field_path.rsplit(".", 1)[0] + ".content", field_path.rsplit(".", 1)[0] + ".explain1", field_path.rsplit(".", 1)[0] + ".example", field_path.rsplit(".", 1)[0] + ".explain2", field_path.rsplit(".", 1)[0] + ".result"}
+                        target_slot = field_path.rsplit(".", 1)[0]
+                        type_targets = {
+                            "explain": {target_slot + ".explain1", target_slot + ".explain2"},
+                            "explain2": {target_slot + ".explain2"},
+                            "example": {target_slot + ".example"},
+                            "result": {target_slot + ".result"},
+                            "revise_idea": {target_slot + ".content"}
+                        }
+                        if target_path not in allowed_for_idea or target_path not in type_targets[recommendation]:
+                            target_path = target_slot + ({"explain": ".explain1", "explain2": ".explain2", "example": ".example", "result": ".result", "revise_idea": ".content"}[recommendation])
+                        clean_development.append({
+                            "path": field_path,
+                            "idea_summary": safe_text(item.get("idea_summary", ""), 500, original_idea[:500]),
+                            "relevance": relevance,
+                            "answer_status": answer_status,
+                            "depth": depth,
+                            "what_works": safe_text(item.get("what_works", ""), 700),
+                            "gap": safe_text(item.get("gap", ""), 900),
+                            "recommendation_type": recommendation,
+                            "target_path": target_path,
+                            "suggested_text": safe_text(item.get("suggested_text", ""), 1000),
+                            "reason": safe_text(item.get("reason", ""), 700)
+                        })
+
+                overall_summary = safe_scope_comment(str(review.get("overall_summary", ""))[:2200].strip(), "Tổng kết dựa trên độ bao phủ yêu cầu đề, độ sâu các ý và mức ước lượng TA/TR; không chấm ngữ pháp.")
                 if not overall_summary:
                     overall_summary = "Đã rà soát từ vựng và mức độ sát đề. Ngữ pháp không thuộc phạm vi đánh giá này."
                 normalized = {
                     "overall_summary": overall_summary,
+                    "question_analysis": question_analysis,
+                    "criterion_estimate": criterion_estimate,
+                    "idea_development": clean_development,
                     "field_reviews": clean_field_reviews,
                     "fill_required_blanks": clean_fill,
                     "summary_categories": summary_categories
                 }
-                return self.send_json(200, {"review": normalized, "model": model, "criterion": criterion, "rubricFocus": "vocabulary appropriateness and idea relevance only"})
+                return self.send_json(200, {"review": normalized, "model": model, "criterion": criterion, "rubricFocus": "question coverage, idea relevance and development depth, with a provisional TA/TR estimate; grammar excluded"})
             except RuntimeError as e:
                 message = str(e)
                 code = 503 if "GEMINI_API_KEY" in message else (429 if "quota" in message.lower() else 502)
@@ -2425,11 +2561,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v45 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v46 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v45.")
+        print("\nStopping WriteWiser v46.")
     finally:
         server.server_close()
 

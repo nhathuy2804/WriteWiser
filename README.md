@@ -1,4 +1,4 @@
-# WriteWiser v45 — Note Excerpts & Toggleable Manual Creation
+# WriteWiser v46 — Note Excerpts & Toggleable Manual Creation
 
 - Lịch sử AI review khôi phục `question`, `task`, `lessonTitle` và bài nộp từ snapshot của lượt làm, không dùng nhầm đề đang mở trong thư viện. Kết quả cũ hiển thị snapshot đề/bài đã chấm; vùng bài viết ở chế độ xem lại là chỉ đọc.
 - Prompt AI ở chế độ Tự viết yêu cầu một JSON contract thống nhất, đủ 4 tiêu chí và điểm breakdown nguyên 0–9; Overall Band do server tính từ bốn tiêu chí và làm tròn nửa band.
@@ -345,12 +345,20 @@ Các đường dẫn lịch sử, dashboard, sổ tay lỗi sai, cài đặt và
 - `/api/health` báo phiên bản `44-compact-ai-notes`.
 
 
-## v45 — Trích giải thích trong danh sách và bật/tắt nhập ghi chú
+## v46 — Trích giải thích trong danh sách và bật/tắt nhập ghi chú
 - Mỗi hàng ghi chú hiển thị cụm từ/câu kèm một đoạn trích từ nghĩa tiếng Việt và ghi chú giải thích; nội dung dài được cắt một dòng bằng ellipsis CSS. Nút **Chi tiết** vẫn mở toàn bộ nội dung.
 - Phần **Tự nhập nội dung để tạo ghi chú** được ẩn mặc định và chỉ mở khi bấm **Tự nhập ghi chú**; trạng thái mở/đóng được công bố qua `aria-expanded`.
-- Ghi chú, API, database và chức năng lưu hiện có không đổi. `/api/health` báo phiên bản `45-note-preview-toggle`.
+- Ghi chú, API, database và chức năng lưu hiện có không đổi. `/api/health` báo phiên bản `46-brainstorm-ta-tr-depth`.
 
 ## v44 — Sổ tay ghi chú AI dạng gọn
 - Danh sách ghi chú hiển thị mỗi mục trên một dòng, phần từ/cụm từ dài tự rút gọn với dấu ba chấm.
 - Nút **Chi tiết** mở/thu gọn đầy đủ nghĩa, ghi chú cần nhớ, cách dùng, ví dụ song ngữ và thông tin nguồn.
 - Tìm kiếm, lọc loại, sao chép và xóa ghi chú vẫn được giữ nguyên.
+
+
+## WriteWiser v46 — Brainstorm task coverage and idea development
+- Brainstorm review decomposes the prompt into individual requirements and marks each as covered, partly covered, or missing.
+- Adds a provisional TA (Task 1) / TR (Task 2) potential band range, with confidence and caveats because a mindmap is not a completed essay.
+- Reviews each populated Idea for relevance, whether it answers the actual question, and depth; suggests a concrete Explain, Example, Result, Explain 2, or revised Idea.
+- Adds Result as an optional expansion branch. Blank optional branches remain omitted from AI review.
+- Grammar, spelling, punctuation, and sentence completeness remain outside Brainstorm grading.
