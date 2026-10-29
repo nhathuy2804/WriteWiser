@@ -3,7 +3,7 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, unquote
 from http import cookies
-import hashlib, hmac, json, os, secrets, sqlite3, time, re, urllib.request, urllib.error, base64, io, zipfile, csv, xml.etree.ElementTree as ET, html
+import hashlib, hmac, json, os, posixpath, secrets, sqlite3, time, re, urllib.request, urllib.error, base64, io, zipfile, csv, xml.etree.ElementTree as ET, html
 from pathlib import Path
 from html.parser import HTMLParser
 import threading
@@ -99,1039 +99,29 @@ MAX_BODY = 4_000_000
 _RATE_LOCK = threading.Lock()
 _RATE_BUCKETS = {}
 
-class SQLiteSession:
-    """Small context wrapper so local development uses the same lifecycle as Postgres."""
-    def __init__(self):
-        self.conn = sqlite3.connect(DB_PATH, timeout=10)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-    def execute(self, sql, params=()):
-        return self.conn.execute(sql, params)
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc, tb):
-        try:
-            if exc_type is None:
-                self.conn.commit()
-            else:
-                self.conn.rollback()
-        finally:
-            self.conn.close()
-        return False
 
-class PostgresSession:
-    """PostgreSQL adapter; SQL uses ? placeholders internally for SQLite compatibility."""
-    def __init__(self):
-        try:
-            import psycopg
-            from psycopg.rows import dict_row
-        except ImportError as exc:
-            raise RuntimeError("DATABASE_URL đã được cấu hình nhưng thiếu psycopg. Hãy cài requirements.txt.") from exc
-        self.conn = psycopg.connect(DATABASE_URL, connect_timeout=15, row_factory=dict_row, prepare_threshold=None)
-    def execute(self, sql, params=()):
-        # All SQL statements in this project use ? only as positional placeholders.
-        return self.conn.execute(sql.replace("?", "%s"), params)
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc, tb):
-        try:
-            if exc_type is None:
-                self.conn.commit()
-            else:
-                self.conn.rollback()
-        finally:
-            self.conn.close()
-        return False
-
-def db():
-    return PostgresSession() if DATABASE_URL else SQLiteSession()
-
-def is_integrity_error(exc):
-    if isinstance(exc, sqlite3.IntegrityError):
-        return True
-    try:
-        import psycopg
-        return isinstance(exc, psycopg.IntegrityError)
-    except ImportError:
-        return False
-
-def _history_created_epoch(record):
-    """Keep the original attempt date stable even when its AI feedback is updated."""
-    value = record.get("date") if isinstance(record, dict) else None
-    if isinstance(value, str) and value.strip():
-        try:
-            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-            return int(parsed.timestamp())
-        except (ValueError, OverflowError, OSError):
-            pass
-    record_id = record.get("id") if isinstance(record, dict) else None
-    try:
-        numeric_id = int(record_id)
-        if numeric_id > 1_000_000_000_000:  # JavaScript Date.now() in milliseconds
-            return numeric_id // 1000
-        if numeric_id > 1_000_000_000:
-            return numeric_id
-    except (TypeError, ValueError, OverflowError):
-        pass
-    return int(time.time())
-
-
-def upsert_user_history(conn, user_id, records):
-    """Append/update records without letting a stale state snapshot delete older attempts."""
-    if not isinstance(records, list):
-        return 0
-    now = int(time.time())
-    saved = 0
-    for record in records[:5000]:
-        if not isinstance(record, dict) or record.get("id") is None:
-            continue
-        record_id = str(record.get("id", "")).strip()[:120]
-        if not record_id:
-            continue
-        try:
-            row = conn.execute(
-                "SELECT record_json, created_at FROM user_history WHERE user_id=? AND record_id=?",
-                (user_id, record_id),
-            ).fetchone()
-            merged = {}
-            created_at = _history_created_epoch(record)
-            if row:
-                try:
-                    previous = json.loads(row["record_json"])
-                    if isinstance(previous, dict):
-                        merged.update(previous)
-                    created_at = int(row["created_at"])
-                except Exception:
-                    pass
-            # Missing fields in an early/pending snapshot must not erase feedback saved later.
-            merged.update(record)
-            merged["id"] = record.get("id")
-            encoded = json.dumps(merged, ensure_ascii=False)
-            if len(encoded.encode("utf-8")) > 600_000:
-                continue
-            conn.execute(
-                """INSERT INTO user_history(user_id, record_id, record_json, created_at, updated_at)
-                   VALUES(?,?,?,?,?)
-                   ON CONFLICT(user_id, record_id) DO UPDATE SET
-                     record_json=excluded.record_json, updated_at=excluded.updated_at""",
-                (user_id, record_id, encoded, created_at, now),
-            )
-            saved += 1
-        except Exception as exc:
-            print(f"[history] skip record {record_id[:32]}: {exc}")
-    return saved
-
-
-def read_user_history(conn, user_id):
-    rows = conn.execute(
-        "SELECT record_json FROM user_history WHERE user_id=? ORDER BY created_at DESC, updated_at DESC",
-        (user_id,),
-    ).fetchall()
-    records = []
-    for row in rows:
-        try:
-            record = json.loads(row["record_json"])
-            if isinstance(record, dict):
-                records.append(record)
-        except Exception:
-            continue
-    return records
-
-
-def init_db():
-    if DATABASE_URL:
-        with db() as c:
-            c.execute("""CREATE TABLE IF NOT EXISTS users (
-                id BIGSERIAL PRIMARY KEY,
-                username TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                salt TEXT NOT NULL,
-                created_at BIGINT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'user'
-            )""")
-            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_uq ON users (LOWER(username))")
-            c.execute("""CREATE TABLE IF NOT EXISTS sessions (
-                token_hash TEXT PRIMARY KEY,
-                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                expires_at BIGINT NOT NULL
-            )""")
-            c.execute("""CREATE TABLE IF NOT EXISTS user_state (
-                user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-                state_json TEXT NOT NULL,
-                updated_at BIGINT NOT NULL
-            )""")
-    else:
-        with db() as c:
-            c.execute("""CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                password_hash TEXT NOT NULL,
-                salt TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                role TEXT NOT NULL DEFAULT 'user'
-            )""")
-            c.execute("""CREATE TABLE IF NOT EXISTS sessions (
-                token_hash TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                expires_at INTEGER NOT NULL
-            )""")
-            c.execute("""CREATE TABLE IF NOT EXISTS user_state (
-                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-                state_json TEXT NOT NULL,
-                updated_at INTEGER NOT NULL
-            )""")
-    # Backward-compatible migration for databases created by earlier v13 builds.
-    with db() as c:
-        if DATABASE_URL:
-            c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'")
-        else:
-            columns = {row["name"] for row in c.execute("PRAGMA table_info(users)").fetchall()}
-            if "role" not in columns:
-                c.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
-        c.execute("""CREATE TABLE IF NOT EXISTS user_history (
-            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            record_id TEXT NOT NULL,
-            record_json TEXT NOT NULL,
-            created_at BIGINT NOT NULL,
-            updated_at BIGINT NOT NULL,
-            PRIMARY KEY (user_id, record_id)
-        )""")
-        c.execute("CREATE INDEX IF NOT EXISTS user_history_recent_idx ON user_history (user_id, created_at DESC)")
-        c.execute("""CREATE TABLE IF NOT EXISTS user_notes (
-            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            note_id TEXT NOT NULL,
-            note_json TEXT NOT NULL,
-            created_at BIGINT NOT NULL,
-            PRIMARY KEY (user_id, note_id)
-        )""")
-        c.execute("CREATE INDEX IF NOT EXISTS user_notes_recent_idx ON user_notes (user_id, created_at DESC)")
-        c.execute("""CREATE TABLE IF NOT EXISTS app_settings (
-            setting_key TEXT PRIMARY KEY,
-            setting_value TEXT NOT NULL,
-            updated_at BIGINT NOT NULL
-        )""")
-        c.execute("""CREATE TABLE IF NOT EXISTS gate_sessions (
-            token_hash TEXT PRIMARY KEY,
-            expires_at BIGINT NOT NULL,
-            created_at BIGINT NOT NULL
-        )""")
-        c.execute("""CREATE TABLE IF NOT EXISTS global_lessons (
-            id TEXT PRIMARY KEY,
-            lesson_json TEXT NOT NULL,
-            created_by TEXT NOT NULL,
-            created_at BIGINT NOT NULL,
-            updated_at BIGINT NOT NULL
-        )""")
-        c.execute("""CREATE TABLE IF NOT EXISTS library_overrides (
-            id TEXT PRIMARY KEY,
-            lesson_json TEXT,
-            deleted INTEGER NOT NULL DEFAULT 0,
-            updated_at BIGINT NOT NULL,
-            updated_by TEXT NOT NULL
-        )""")
-        c.execute("""CREATE TABLE IF NOT EXISTS admin_calibrations (
-            id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, created_by TEXT NOT NULL,
-            created_at BIGINT NOT NULL, active INTEGER NOT NULL DEFAULT 1
-        )""")
-        c.execute("""CREATE TABLE IF NOT EXISTS feedback_corrections (
-            id TEXT PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'private',
-            created_at BIGINT NOT NULL, reviewed_by TEXT
-        )""")
-        c.execute("""CREATE TABLE IF NOT EXISTS reference_overrides (
-            id TEXT PRIMARY KEY, payload_json TEXT, deleted INTEGER NOT NULL DEFAULT 0,
-            updated_at BIGINT NOT NULL, updated_by TEXT NOT NULL
-        )""")
-    ensure_initial_security_accounts()
-
-def password_hash(password, salt_hex):
-    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), PBKDF2_ROUNDS).hex()
-
-def token_hash(token):
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-def read_setting(key):
-    with db() as c:
-        row = c.execute("SELECT setting_value FROM app_settings WHERE setting_key=?", (key,)).fetchone()
-    return row["setting_value"] if row else None
-
-def write_setting(key, value):
-    with db() as c:
-        c.execute("""INSERT INTO app_settings(setting_key,setting_value,updated_at) VALUES(?,?,?)
-                     ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value, updated_at=excluded.updated_at""",
-                  (key, value, int(time.time())))
-
-def store_password(prefix, password):
-    salt = secrets.token_hex(16)
-    write_setting(prefix + "_salt", salt)
-    write_setting(prefix + "_hash", password_hash(password, salt))
-
-def verify_stored_password(prefix, password):
-    salt = read_setting(prefix + "_salt")
-    expected = read_setting(prefix + "_hash")
-    if not salt or not expected or not isinstance(password, str):
-        return False
-    return hmac.compare_digest(password_hash(password, salt), expected)
-
-def ensure_initial_security_accounts():
-    """Creates a shared gate password and an administrator once, then persists only hashes."""
-    generated = []
-    with db() as c:
-        gate_hash = c.execute("SELECT setting_value FROM app_settings WHERE setting_key='gate_password_hash'").fetchone()
-        if not gate_hash:
-            gate_password = os.environ.get("WRITEWISER_GATE_PASSWORD", "").strip()
-            if not gate_password:
-                gate_password = secrets.token_urlsafe(18)
-                generated.append(("Mật khẩu truy cập chung", gate_password))
-            salt = secrets.token_hex(16)
-            c.execute("INSERT INTO app_settings(setting_key,setting_value,updated_at) VALUES(?,?,?)", ("gate_password_salt", salt, int(time.time())))
-            c.execute("INSERT INTO app_settings(setting_key,setting_value,updated_at) VALUES(?,?,?)", ("gate_password_hash", password_hash(gate_password, salt), int(time.time())))
-        admin = c.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()
-        if not admin:
-            username = os.environ.get("WRITEWISER_ADMIN_USERNAME", "admin").strip() or "admin"
-            admin_password = os.environ.get("WRITEWISER_ADMIN_PASSWORD", "")
-            if not admin_password:
-                admin_password = secrets.token_urlsafe(18)
-                generated.append(("Mật khẩu tài khoản admin (username: " + username + ")", admin_password))
-            salt = secrets.token_hex(16)
-            ph = password_hash(admin_password, salt)
-            existing = c.execute("SELECT id FROM users WHERE LOWER(username)=LOWER(?)", (username,)).fetchone()
-            if existing:
-                c.execute("UPDATE users SET role='admin', password_hash=?, salt=? WHERE id=?", (ph, salt, existing["id"]))
-            else:
-                c.execute("INSERT INTO users(username,password_hash,salt,created_at,role) VALUES(?,?,?,?,?)", (username, ph, salt, int(time.time()), "admin"))
-    if generated:
-        print("\n================ WRITEWISER INITIAL CREDENTIALS ================")
-        print("Lưu các mật khẩu dưới đây ngay. Server chỉ in chúng trong lần khởi tạo đầu tiên:")
-        for label, value in generated:
-            print(f"{label}: {value}")
-        print("Có thể thay mật khẩu web và mật khẩu admin trong bảng Quản trị sau khi đăng nhập.")
-        print("===============================================================\n")
-
-class DolLinkParser(HTMLParser):
-    """Extract public article titles and URLs only; never downloads article bodies."""
-    def __init__(self, base_url):
-        super().__init__()
-        self.base_url = base_url
-        self.items = []
-        self.current = None
-        self.parts = []
-    def handle_starttag(self, tag, attrs):
-        if tag != "a":
-            return
-        attrs = dict(attrs)
-        href = attrs.get("href", "")
-        if "/blog/" in href and "tuhoc.dolenglish.vn" in self.base_url:
-            from urllib.parse import urljoin, urlparse
-            url = urljoin(self.base_url, href)
-            parsed = urlparse(url)
-            if parsed.scheme == "https" and parsed.netloc in ("tuhoc.dolenglish.vn", "www.dolenglish.vn", "dolacademy.vn", "www.dolacademy.vn"):
-                self.current = {"url": url, "title": ""}
-                self.parts = []
-    def handle_data(self, data):
-        if self.current is not None:
-            text = " ".join(data.split())
-            if text:
-                self.parts.append(text)
-    def handle_endtag(self, tag):
-        if tag == "a" and self.current is not None:
-            title = " ".join(self.parts).strip()
-            if 12 <= len(title) <= 240 and not any(x["url"] == self.current["url"] for x in self.items):
-                self.current["title"] = title
-                self.items.append(self.current)
-            self.current = None
-            self.parts = []
-
-
-def fetch_dol_catalog(task):
-    """Fetch listing pages for article metadata only, on explicit user request."""
-    from urllib.parse import urlparse, unquote
-    sources = []
-    if task in ("all", "Task 1"):
-        sources.append(("Task 1", "https://tuhoc.dolenglish.vn/category/tong-hop-bai-mau-ielts-writing-task-1-sample"))
-    if task in ("all", "Task 2"):
-        sources.append(("Task 2", "https://tuhoc.dolenglish.vn/category/tong-hop-bai-mau-ielts-writing-task-2-sample"))
-    found = []
-    for label, url in sources:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; WriteWiserPersonalStudy/1.0)", "Accept": "text/html"})
-        with urllib.request.urlopen(req, timeout=12) as response:
-            html = response.read(2_500_000).decode("utf-8", "replace")
-        parser = DolLinkParser(url)
-        parser.feed(html)
-        for item in parser.items:
-            if item["url"].rstrip("/") == url.rstrip("/"):
-                continue
-            found.append({"task": label, "title": item["title"], "url": item["url"], "description": "Bài viết từ kho bài mẫu công khai của DOL. Mở trang gốc để xem nội dung đầy đủ."})
-    seen = set()
-    output = []
-    for item in found:
-        if item["url"] not in seen:
-            seen.add(item["url"])
-            output.append(item)
-    return output[:120]
-
-
-class TextOnlyParser(HTMLParser):
-    def __init__(self):
-        super().__init__(); self.parts=[]; self.skip=0
-    def handle_starttag(self, tag, attrs):
-        if tag.lower() in ("script", "style", "noscript", "svg"):
-            self.skip += 1
-        if tag.lower() in ("p", "div", "br", "li", "h1", "h2", "h3", "tr", "section") and not self.skip:
-            self.parts.append("\n")
-    def handle_endtag(self, tag):
-        if tag.lower() in ("script", "style", "noscript", "svg") and self.skip:
-            self.skip -= 1
-        if tag.lower() in ("p", "div", "li", "h1", "h2", "h3", "tr", "section") and not self.skip:
-            self.parts.append("\n")
-    def handle_data(self, data):
-        if not self.skip and data.strip(): self.parts.append(data.strip())
-
-def extract_docx_text(raw):
-    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-        xml_data = archive.read("word/document.xml")
-    root = ET.fromstring(xml_data)
-    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-    paragraphs=[]
-    for para in root.findall(".//w:p", ns):
-        text="".join(node.text or "" for node in para.findall(".//w:t", ns)).strip()
-        if text: paragraphs.append(text)
-    return "\n\n".join(paragraphs)
-
-def infer_import_sections(text, filename):
-    # Preserve empty lines because they encode paragraph boundaries for reverse translation.
-    lines=[line.strip() for line in str(text).replace("\r", "").split("\n")]
-    while lines and not lines[0]: lines.pop(0)
-    while lines and not lines[-1]: lines.pop()
-    title=Path(filename).stem[:180] if filename else "Bài nhập mới"
-    question=""
-    body_lines=[]
-    mode="body"
-    question_lines=[]
-    essay_lines=[]
-    saw_question=False
-    saw_essay=False
-    q_re=re.compile(r"^(?:question|prompt|đề bài|de bai|writing task\s*[12])\s*[:：-]?\s*(.*)$",re.I)
-    essay_re=re.compile(r"^(?:sample answer|model answer|sample essay|model essay|sample response|bài mẫu|bai mau|bài viết mẫu|essay|model response)\s*[:：-]?\s*(.*)$",re.I)
-    title_re=re.compile(r"^(?:title|tiêu đề|tieu de)\s*[:：-]\s*(.+)$",re.I)
-    for line in lines:
-        tm=title_re.match(line)
-        if tm: title=tm.group(1).strip()[:180]; continue
-        qm=q_re.match(line)
-        if qm:
-            saw_question=True; mode="question"
-            if qm.group(1).strip(): question_lines.append(qm.group(1).strip())
-            continue
-        em=essay_re.match(line)
-        if em:
-            saw_essay=True; mode="essay"
-            if em.group(1).strip(): essay_lines.append(em.group(1).strip())
-            continue
-        if not line:
-            target=question_lines if mode=="question" else essay_lines if mode=="essay" else body_lines
-            if target and target[-1] != "": target.append("")
-            continue
-        if mode=="question": question_lines.append(line)
-        elif mode=="essay": essay_lines.append(line)
-        else: body_lines.append(line)
-    if saw_question and saw_essay:
-        question=" ".join(x for x in question_lines if x).strip()
-        body="\n".join(essay_lines).strip()
-    else:
-        question=""
-        body="\n".join(body_lines or lines).strip()
-    return {"title":title,"question":question,"english":body}
-
-def parse_import_file(data):
-    filename = str(data.get("filename", "import.txt"))[:180]
-    suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else "txt"
-    if suffix == "docx":
-        encoded = data.get("base64", "")
-        if not isinstance(encoded, str) or len(encoded) > 3_000_000:
-            raise ValueError("Tệp DOCX không hợp lệ hoặc quá lớn.")
-        try: raw = base64.b64decode(encoded, validate=True); text = extract_docx_text(raw)
-        except Exception as e: raise ValueError("Không đọc được DOCX. Hãy kiểm tra tệp có phải Word .docx không.") from e
-        sections=infer_import_sections(text, filename)
-        return {"kind": "text", "text": sections["english"], "meta": {"title": sections["title"], "question": sections["question"]}}
-    content = data.get("text", "")
-    if not isinstance(content, str) or len(content.encode("utf-8")) > 2_500_000:
-        raise ValueError("Nội dung tệp quá lớn hoặc không hợp lệ.")
-    if suffix in ("json",):
-        try: parsed = json.loads(content)
-        except json.JSONDecodeError as e: raise ValueError("Tệp JSON không hợp lệ.") from e
-        if isinstance(parsed, dict) and isinstance(parsed.get("lessons"), list): items=parsed["lessons"]
-        elif isinstance(parsed, list): items=parsed
-        elif isinstance(parsed, dict) and ("title" in parsed or "question" in parsed): items=[parsed]
-        else: return {"kind":"text", "text":json.dumps(parsed, ensure_ascii=False, indent=2), "meta":{"title":filename.rsplit(".",1)[0]}}
-        return {"kind":"bulk-json", "lessons":items[:100]}
-    if suffix == "csv":
-        try: items=list(csv.DictReader(io.StringIO(content)))
-        except Exception as e: raise ValueError("Không đọc được CSV.") from e
-        for item in items:
-            vi=item.get("vietnamese", "")
-            if isinstance(vi,str): item["vietnamese"]=[line.strip() for line in vi.replace("|||", "\n").splitlines() if line.strip()]
-            en=item.get("english", "")
-            if isinstance(en,str) and "essay" not in item: item["english"]=en
-        return {"kind":"bulk-json", "lessons":items[:100]}
-    if suffix in ("html", "htm"):
-        parser=TextOnlyParser(); parser.feed(content)
-        # The HTML extractor emits line breaks for block elements; do not flatten them,
-        # because paragraph boundaries must survive import into the reverse-translation editor.
-        content=re.sub(r"[ \t]+", " ", "".join(parser.parts))
-        content=re.sub(r"\n{3,}", "\n\n", content).strip()
-    sections=infer_import_sections(content.strip(), filename)
-    return {"kind":"text", "text":sections["english"], "meta":{"title":sections["title"], "question":sections["question"]}}
-
-
-def load_scoring_resources():
-    rubric_path = BASE / "resources" / "band_rubric.json"
-    refs_path = BASE / "resources" / "reference_catalog.json"
-    try:
-        rubric_data = json.loads(rubric_path.read_text(encoding="utf-8"))
-    except Exception:
-        rubric_data = {"bands": {}}
-    try:
-        references = json.loads(refs_path.read_text(encoding="utf-8"))
-    except Exception:
-        references = []
-    try:
-        with db() as c:
-            rows = c.execute("SELECT id,payload_json,deleted FROM reference_overrides").fetchall()
-        hidden=set(); added=[]
-        for row in rows:
-            if row["deleted"]: hidden.add(row["id"]); continue
-            try:
-                item=json.loads(row["payload_json"] or "{}")
-                if item: added.append(item)
-            except Exception: pass
-        references=[r for r in references if str(r.get("id", r.get("url", r.get("title", "")))) not in hidden]
-        references.extend(added)
-    except Exception:
-        pass
-    return rubric_data, references
-
-
-def build_scoring_rubric(task):
-    data, _ = load_scoring_resources()
-    criterion_codes = ["TA", "CC", "LR", "GRA"] if task == "Task 1" else ["TR", "CC", "LR", "GRA"]
-    labels = data.get("criterion_names", {})
-    lines = [
-        "Bạn là giám khảo luyện IELTS Writing. Đây là đánh giá học tập độc lập, không phải điểm IELTS chính thức.",
-        "NGUỒN: IELTS Writing Band Descriptors, cập nhật May 2023: https://ielts.org/cdn/ielts-guides/ielts-writing-band-descriptors.pdf",
-        "Các mô tả sau là diễn giải tiếng Việt do WriteWiser biên soạn, không phải bản chép nguyên văn. Khi cần xác minh, người dùng phải mở tài liệu nguồn chính thức.",
-        "Đánh giá theo đúng task. Không dùng Task Response cho Task 1; không dùng Task Achievement cho Task 2.",
-        "Band anchors theo từng tiêu chí (0–9):"
-    ]
-    bands = data.get("bands", {})
-    for band in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]:
-        lines.append(f"Band {band}:")
-        for code in criterion_codes:
-            desc = bands.get(band, {}).get(code, "")
-            if desc:
-                lines.append(f"- {labels.get(code, code)}: {desc}")
-    lines.extend([
-        "Phân biệt band liền kề bằng toàn bộ bằng chứng, không chấm theo từ vựng 'cao cấp' đơn thuần. Band 8/9 đòi hỏi kiểm soát ổn định, phù hợp task, không chỉ có vài câu hay.",
-        "Không coi bài benchmark hoặc sample là đáp án để bắt chước; đánh giá bài nộp dựa trên yêu cầu đề và rubric.",
-        "Task 1 Academic: xem overview, lựa chọn/nhóm đặc điểm, so sánh/số liệu chính xác, không bịa dữ liệu. Task 2: xem mọi phần đề, lập trường, relevance, độ phát triển và hỗ trợ ý.",
-        "CC: xem logic, progression, paragraphing, cohesion/reference; LR: range, precision, collocation, register, word formation/spelling; GRA: range, accuracy, sentence control, punctuation.",
-        "Nếu bài dưới 150 từ (Task 1) hoặc 250 từ (Task 2), nêu thiếu bằng chứng có thể ảnh hưởng đánh giá, nhưng không tự động trừ band theo một công thức cứng.",
-        "Mỗi band tiêu chí là số nguyên từ 0–9, không dùng .5. Cung cấp dẫn chứng ngắn nguyên văn đúng với bài; không bịa quote. Phân biệt lỗi khách quan với lựa chọn phong cách.",
-        "Nếu chưa đủ bằng chứng cho một band, nói rõ điều chưa chắc chắn thay vì khẳng định quá mức.",
-        "Trả JSON hợp lệ theo schema:",
-        '{"overall_band":7.0,"word_count":250,"task_criterion":"TR","criteria":[{"name":"Task Response","band":7,"rationale":"...","strengths":["..."],"weaknesses":["..."],"evidence":["exact quote"],"improvements":["specific rewrite and why"],"next_band_gap":"..."}],"overall_summary":"...","strengths":["..."],"priority_errors":[{"original":"exact quote","correction":"...","explanation":"..."}],"paragraph_feedback":[{"paragraph":"Introduction","comment":"...","suggestions":["..."]}],"upgraded_version":"...","next_steps":["..."],"caveat":"Ước lượng học tập, không phải điểm IELTS chính thức."}',
-        "Trả đủ bốn tiêu chí; mảng không có dữ liệu là []. Viết phản hồi bằng tiếng Việt, có gạch đầu dòng trong các danh sách.",
-        "MỨC ĐỘ CHI TIẾT BẮT BUỘC: với MỖI tiêu chí hãy nêu Điểm tốt, Điểm cần cải thiện, dẫn chứng nguyên văn cụ thể, giải thích vì sao bằng chứng đáp ứng/chưa đáp ứng descriptor ở band được chọn và vì sao chưa lên band tiếp theo. Đưa ra câu sửa cụ thể và giải thích sự thay đổi về ngữ pháp, từ vựng, collocation, logic hoặc độ chính xác. Không chỉ dùng lời khen chung chung.",
-        "Với Task 1, kiểm tra từng nhận định so với ảnh nếu ảnh được đính kèm; xác định đơn vị, nhóm dữ liệu, tỷ trọng so với tổng lượng tuyệt đối, overview có bao quát tất cả biểu đồ, lựa chọn key features, so sánh và độ chính xác số liệu. Không bịa dữ liệu. Nếu không có ảnh, nói rõ không thể kiểm tra trực quan.",
-        "Với Task 2, đánh giá từng phần của câu hỏi, độ rõ của lập trường, độ liên quan của từng luận điểm, chuỗi giải thích/cơ chế/ví dụ, và mức phát triển thay vì chỉ đếm số ý. Nhận xét theo từng đoạn và chỉ ra vị trí câu cần sửa.",
-        "Trong criteria, nếu phù hợp hãy điền strengths[], weaknesses[], evidence[], improvements[] và next_band_gap. Với priority_errors, ưu tiên lỗi có ảnh hưởng đến nghĩa, độ chính xác hoặc band; mỗi mục phải có trích dẫn nguyên văn, bản sửa và lý do. upgraded_version phải giữ nguyên ý và dữ liệu người viết, không tự thêm số liệu/ví dụ như thể là sự thật."
-    ])
-    master_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
-    try:
-        master_prompt = master_path.read_text(encoding="utf-8")
-    except Exception:
-        master_prompt = ""
-    if master_prompt.strip():
-        lines.extend(["", "=== MASTER PROMPT DO NGƯỜI DÙNG CUNG CẤP — ÁP DỤNG TRỰC TIẾP CHO LƯỢT CHẤM NÀY ===", master_prompt])
-    try:
-        benchmark_path = BASE / "resources" / "official_benchmark_catalog.json"
-        benchmark_catalog = json.loads(benchmark_path.read_text(encoding="utf-8"))
-    except Exception:
-        benchmark_catalog = []
-    lines.extend(["", "=== THAM CHIẾU SAMPLE ĐƯỢC ĐỊNH DANH TRONG CATALOG ===", json.dumps(benchmark_catalog, ensure_ascii=False), "Lưu ý: catalog này chỉ mô tả các sample đã có nguồn/band được xác nhận; không được giả vờ rằng nó chứa sample được chấm chính thức cho mọi band 5–9. Khi thiếu sample ở band cụ thể, hãy coi các anchor trong descriptor là căn cứ chính và chỉ tạo sample hiệu chuẩn mô phỏng nếu cần; phải ghi rõ sample mô phỏng không phải bài chính thức."])
-    lines.extend(["", "QUY TẮC ĐẦU RA BẮT BUỘC CỦA WRITEWISER: điểm của từng tiêu chí phải là SỐ NGUYÊN từ 0 đến 9, tuyệt đối không dùng .5. Overall được tính trung bình bốn tiêu chí và làm tròn tới band 0.5 gần nhất."])
-    # Include only a small number of admin-approved calibration examples; never user-private edits.
-    try:
-        with db() as c:
-            rows=c.execute("SELECT payload_json FROM admin_calibrations WHERE active=1 ORDER BY created_at DESC LIMIT 3").fetchall()
-        examples=[]
-        for row in reversed(rows):
-            try:
-                item=json.loads(row["payload_json"])
-                examples.append({k:item.get(k) for k in ("task","question","essay_excerpt","corrected_bands","reasoning") if item.get(k) not in (None,"",[])})
-            except Exception: pass
-        if examples:
-            lines.extend(["", "=== HIỆU CHUẨN ĐƯỢC ADMIN DUYỆT (chỉ là ví dụ bổ trợ; descriptor vẫn là căn cứ chính) ===", json.dumps(examples,ensure_ascii=False)])
-    except Exception:
-        pass
-    # This final contract intentionally appears after the user-supplied master prompt
-    # so the model receives one stable output schema even when older prompt text
-    # contains a different JSON example or Markdown-oriented formatting requests.
-    lines.extend([
-        "", "=== WRITEWISER v36 — JSON OUTPUT CONTRACT OVERRIDE (ƯU TIÊN CAO NHẤT) ===",
-        "Chỉ trả về MỘT JSON object hợp lệ, không Markdown fence, không bảng Markdown bên ngoài JSON và không có lời dẫn ngoài JSON.",
-        "Bắt buộc có đúng 4 phần tử criteria theo thứ tự: Task Achievement (Task 1) hoặc Task Response (Task 2), Coherence and Cohesion, Lexical Resource, Grammatical Range and Accuracy. Band từng tiêu chí là số nguyên 0–9; server sẽ tính overall_band từ bốn band đó.",
-        "Schema chuẩn: overall_band (number), word_count (integer), task_criterion ('TA' hoặc 'TR'), criteria[{name,band,rationale,strengths[],weaknesses[],evidence[],improvements[],next_band_gap}], overall_summary, strengths[], priority_errors[{original,correction,explanation,criterion}], vocabulary_review[{original,correction,explanation,issue_type}], grammar_review[{original,correction,explanation}], paragraph_feedback[{paragraph,comment,suggestions[]}], upgraded_version, next_steps[], additional_notes[], caveat.",
-        "Mỗi tiêu chí phải có rationale, strengths, weaknesses, evidence và improvements. Evidence phải trích nguyên văn từ bài. Mảng vocabulary_review và grammar_review là OPTIONAL: trả [] nếu không có ví dụ phù hợp, không tạo lỗi giả và không ép mục nào phải có nội dung. paragraph_feedback, upgraded_version, next_steps và additional_notes cũng có thể rỗng hoặc [] nếu không hữu ích cho bài cụ thể.",
-        "Trong vocabulary_review, original phải là cụm nguyên văn từ bài viết; correction là bản sửa đề xuất; explanation giải thích ngắn về collocation, word choice, word form hoặc spelling. Đây là dữ liệu để frontend dựng bảng 'Cách viết trong bài / Cách sửa phù hợp / Giải thích', không trả dữ liệu dạng Markdown table.",
-        "Trong grammar_review, original là câu/cụm nguyên văn, correction là bản sửa, explanation giải thích cấu trúc hoặc nguyên tắc. Các lỗi trọng yếu không thuộc từ vựng có thể được đặt trong priority_errors. Hạn chế trùng lặp giữa các phần.",
-        "Dùng chuỗi rỗng cho trường text không áp dụng, [] cho mảng rỗng. Không điền 'N/A', không bịa lỗi hoặc nội dung để lấp biểu mẫu. caveat mặc định: 'Điểm ước lượng dựa trên bài viết và các tiêu chí IELTS Writing, không phải điểm từ giám khảo IELTS chính thức.'",
-        'JSON template: {"overall_band":6.0,"word_count":250,"task_criterion":"TR","criteria":[{"name":"Task Response","band":6,"rationale":"...","strengths":["..."],"weaknesses":["..."],"evidence":["exact quote"],"improvements":["..."],"next_band_gap":"..."},{"name":"Coherence and Cohesion","band":6,"rationale":"...","strengths":[],"weaknesses":[],"evidence":[],"improvements":[],"next_band_gap":""},{"name":"Lexical Resource","band":6,"rationale":"...","strengths":[],"weaknesses":[],"evidence":[],"improvements":[],"next_band_gap":""},{"name":"Grammatical Range and Accuracy","band":5,"rationale":"...","strengths":[],"weaknesses":[],"evidence":[],"improvements":[],"next_band_gap":""}],"overall_summary":"...","strengths":[],"priority_errors":[],"vocabulary_review":[],"grammar_review":[],"paragraph_feedback":[],"upgraded_version":"","next_steps":[],"additional_notes":[],"caveat":"Điểm ước lượng dựa trên bài viết và các tiêu chí IELTS Writing, không phải điểm từ giám khảo IELTS chính thức."}'
-    ])
-    return "\n".join(lines)
-
-def _as_json_list(value):
-    if isinstance(value, list):
-        return value
-    if value in (None, ""):
-        return []
-    return [value]
-
-
-def normalize_writing_feedback(payload, task, word_count):
-    """Normalize provider variations to the stable WriteWiser v36 scoring schema."""
-    if not isinstance(payload, dict):
-        return {}
-    feedback = dict(payload)
-    aliases = {
-        "overall_summary": ("summary", "overall_comment", "summary_overall"),
-        "strengths": ("overall_strengths", "positive_points"),
-        "priority_errors": ("errors", "corrections", "important_errors"),
-        "vocabulary_review": ("lexical_review", "lexical_corrections", "vocabulary_corrections", "lexical_items", "vocabulary_items", "vocabulary_table", "lexical_table"),
-        "grammar_review": ("grammar_corrections", "grammatical_corrections", "grammar_items", "grammar_examples"),
-        "paragraph_feedback": ("paragraph_review", "paragraphs", "paragraph_comments"),
-        "upgraded_version": ("reference_essay", "improved_essay", "rewritten_essay", "model_answer"),
-        "next_steps": ("improvement_plan", "priorities", "practice_steps"),
-        "additional_notes": ("notes", "cautions", "extra_notes"),
-        "caveat": ("disclaimer", "score_note"),
-    }
-    for canonical, alt_names in aliases.items():
-        if canonical not in feedback or feedback[canonical] is None:
-            for alt in alt_names:
-                if alt in feedback and feedback[alt] is not None:
-                    feedback[canonical] = feedback[alt]
-                    break
-    expected_names = ["Task Achievement" if task == "Task 1" else "Task Response", "Coherence and Cohesion", "Lexical Resource", "Grammatical Range and Accuracy"]
-    raw_criteria = feedback.get("criteria", feedback.get("criterion_scores", feedback.get("scores", [])))
-    if isinstance(raw_criteria, dict):
-        normalized_criteria = []
-        for index, expected in enumerate(expected_names):
-            code = ["TA" if task == "Task 1" else "TR", "CC", "LR", "GRA"][index]
-            match = next((v for k, v in raw_criteria.items() if str(k).strip().lower() in {expected.lower(), code.lower(), ("task achievement" if code=="TA" else "task response")}), None)
-            if isinstance(match, dict):
-                item = dict(match)
-            else:
-                item = {"band": match}
-            item.setdefault("name", expected)
-            normalized_criteria.append(item)
-        raw_criteria = normalized_criteria
-    criteria = []
-    if isinstance(raw_criteria, list):
-        for index, expected in enumerate(expected_names):
-            raw = raw_criteria[index] if index < len(raw_criteria) else {}
-            if not isinstance(raw, dict):
-                raw = {"band": raw}
-            item = dict(raw)
-            if not item.get("name") and item.get("criterion"):
-                item["name"] = item["criterion"]
-            item["name"] = expected
-            if "band" not in item and "score" in item:
-                item["band"] = item.get("score")
-            if "rationale" not in item:
-                item["rationale"] = item.get("comment", item.get("explanation", ""))
-            for key, alts in {
-                "strengths": ("positive_points", "good_points", "what_works"),
-                "weaknesses": ("areas_to_improve", "improvements_needed", "issues"),
-                "evidence": ("examples", "quotes", "evidence_from_essay"),
-                "improvements": ("suggestions", "recommendations", "corrections"),
-            }.items():
-                if key not in item:
-                    for alt in alts:
-                        if alt in item:
-                            item[key] = item[alt]
-                            break
-                item[key] = _as_json_list(item.get(key))
-            item["next_band_gap"] = str(item.get("next_band_gap", item.get("gap_to_next_band", "")) or "")
-            criteria.append(item)
-    feedback["criteria"] = criteria
-    feedback["task_criterion"] = "TA" if task == "Task 1" else "TR"
-    feedback["word_count"] = word_count
-    feedback["overall_summary"] = str(feedback.get("overall_summary", "") or "")
-    feedback["strengths"] = _as_json_list(feedback.get("strengths"))
-    # Structured correction sections should be arrays of objects. If a provider
-    # ignores the schema and emits a prose string, preserve that prose as an optional
-    # note rather than rendering an empty row in a correction table.
-    freeform_notes = _as_json_list(feedback.get("additional_notes"))
-    for key in ("priority_errors", "vocabulary_review", "grammar_review", "paragraph_feedback", "next_steps", "additional_notes"):
-        raw_value = feedback.get(key)
-        if key in ("priority_errors", "vocabulary_review", "grammar_review") and isinstance(raw_value, str) and raw_value.strip():
-            freeform_notes.append(f"{key}: {raw_value.strip()}")
-            items = []
-        else:
-            items = _as_json_list(raw_value)
-        normalized_items = []
-        for item in items:
-            if isinstance(item, str):
-                if key in ("priority_errors", "vocabulary_review", "grammar_review"):
-                    normalized_items.append({"original": item, "correction": "", "explanation": ""})
-                elif key == "paragraph_feedback":
-                    normalized_items.append({"paragraph": "Đoạn văn", "comment": item, "suggestions": []})
-                else:
-                    normalized_items.append(item)
-            elif isinstance(item, dict):
-                obj = dict(item)
-                if key in ("priority_errors", "vocabulary_review", "grammar_review"):
-                    obj.setdefault("original", obj.get("before", obj.get("original_text", obj.get("phrase", ""))))
-                    obj.setdefault("correction", obj.get("after", obj.get("suggestion", obj.get("revised", ""))))
-                    obj.setdefault("explanation", obj.get("reason", obj.get("why", "")))
-                elif key == "paragraph_feedback":
-                    obj.setdefault("paragraph", obj.get("name", obj.get("section", "Đoạn văn")))
-                    obj.setdefault("comment", obj.get("feedback", obj.get("analysis", "")))
-                    obj["suggestions"] = _as_json_list(obj.get("suggestions", obj.get("recommendations", [])))
-                normalized_items.append(obj)
-        feedback[key] = normalized_items
-    feedback["additional_notes"] = [x for x in freeform_notes if isinstance(x, str) and x.strip()]
-    feedback["upgraded_version"] = str(feedback.get("upgraded_version", "") or "")
-    feedback["caveat"] = str(feedback.get("caveat", "") or "Điểm ước lượng dựa trên bài viết và các tiêu chí IELTS Writing, không phải điểm từ giám khảo IELTS chính thức.")
-    return feedback
-
-
-def gemini_generate(system_instruction, prompt, max_output_tokens=6500, image_data=None):
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("Chưa cấu hình GEMINI_API_KEY. Hãy tạo key trong Google AI Studio và thiết lập biến môi trường.")
-    model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip()
-    if not re.fullmatch(r"[A-Za-z0-9._-]{3,100}", model): model="gemini-3.8-flash"
-    payload = {
-        "systemInstruction": {"parts": [{"text": system_instruction}]},
-        "contents": [{"role": "user", "parts": ([{"text": prompt}] + ([{"inlineData": {"mimeType": image_data.split(';')[0].split(':')[1], "data": image_data.split(',',1)[1]}}] if image_data and image_data.startswith("data:image/") and "," in image_data else []))}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": max_output_tokens, "responseMimeType": "application/json"}
-    }
-    request = urllib.request.Request(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"}, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            result=json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        try:
-            detail=json.loads(e.read().decode("utf-8")); message=detail.get("error",{}).get("message","")
-        except Exception: message=""
-        if e.code in (401,403): raise RuntimeError("Gemini API key không hợp lệ hoặc chưa có quyền truy cập. " + message[:200])
-        if e.code == 429: raise RuntimeError("Gemini đang giới hạn tốc độ hoặc đã hết quota miễn phí. Hãy kiểm tra hạn mức trong AI Studio.")
-        raise RuntimeError(f"Gemini API gặp lỗi HTTP {e.code}. {message[:200]}")
-    except (urllib.error.URLError, TimeoutError) as e:
-        raise RuntimeError("Không kết nối được Gemini API. Hãy kiểm tra kết nối mạng.") from e
-    candidates=result.get("candidates", [])
-    text="\n".join(part.get("text","") for part in (candidates[0].get("content",{}).get("parts",[]) if candidates else []) if isinstance(part,dict)).strip()
-    if not text: raise RuntimeError("Gemini không trả về nội dung. Hãy thử lại hoặc kiểm tra quota.")
-    text=re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.I)
-    try: parsed=json.loads(text)
-    except json.JSONDecodeError as e: raise RuntimeError("Gemini trả về JSON không hợp lệ. Hãy thử lại.") from e
-    return parsed, result.get("modelVersion", model)
-
-
-def custom_openai_compatible_providers():
-    """Load additional OpenAI-compatible providers entirely from environment variables.
-
-    CUSTOM_AI_PROVIDERS_JSON is a JSON array. API keys stay in separate secret env vars.
-    Non-OpenAI-compatible APIs need a dedicated adapter in code.
-    """
-    raw = os.environ.get("CUSTOM_AI_PROVIDERS_JSON", "").strip()
-    if not raw:
-        return {}
-    try:
-        entries = json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(entries, list):
-        return {}
-    result = {}
-    reserved = {"gemini", "groq", "together", "openrouter"}
-    for item in entries:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name", "")).strip().lower()
-        api_key_env = str(item.get("api_key_env", "")).strip()
-        model_env = str(item.get("model_env", "")).strip()
-        endpoint = str(item.get("endpoint", "")).strip()
-        default_model = str(item.get("default_model", "")).strip()
-        label = str(item.get("label", name)).strip() or name
-        if (not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", name) or name in reserved
-                or name in result or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,63}", api_key_env)
-                or not model_env or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,63}", model_env)
-                or not default_model):
-            continue
-        parsed = urlparse(endpoint)
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or not endpoint.endswith("/chat/completions"):
-            continue
-        result[name] = {
-            "key_env": api_key_env, "model_env": model_env, "endpoint": endpoint,
-            "default_model": default_model, "label": label, "custom": True,
-        }
-    return result
-
-
-def parse_json_response_content(content):
-    """Parse strict JSON, fenced JSON, or a JSON object embedded in harmless model prose."""
-    text = str(content or "").strip().lstrip("\ufeff")
-    if not text:
-        raise ValueError("empty")
-    # Prefer a fenced JSON block if a model ignored JSON-only instructions.
-    fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.I | re.S)
-    candidates = [fenced.group(1).strip()] if fenced else []
-    candidates.append(text)
-    for candidate in candidates:
-        try:
-            return json.loads(candidate)
-        except (json.JSONDecodeError, TypeError):
-            pass
-    # Find the first balanced object/array without being confused by braces in strings.
-    for begin, close in (("{", "}"), ("[", "]")):
-        for i, char in enumerate(text):
-            if char != begin:
-                continue
-            stack = []
-            in_string = False
-            escaped = False
-            pairs = {"{": "}", "[": "]"}
-            for j in range(i, len(text)):
-                c = text[j]
-                if in_string:
-                    if escaped:
-                        escaped = False
-                    elif c == "\\":
-                        escaped = True
-                    elif c == '"':
-                        in_string = False
-                    continue
-                if c == '"':
-                    in_string = True
-                elif c in pairs:
-                    stack.append(pairs[c])
-                elif c in ("}", "]"):
-                    if not stack or c != stack.pop():
-                        break
-                    if not stack:
-                        candidate = text[i:j+1]
-                        try:
-                            return json.loads(candidate)
-                        except json.JSONDecodeError:
-                            break
-    raise ValueError("invalid")
-
-
-def openai_compatible_generate(provider, system_instruction, prompt, max_output_tokens=6500, image_data=None):
-    builtins = {
-        "groq": {"key_env":"GROQ_API_KEY", "model_env":"GROQ_MODEL", "endpoint":"https://api.groq.com/openai/v1/chat/completions", "default_model":"llama-3.3-70b-versatile", "label":"Groq"},
-        "together": {"key_env":"TOGETHER_API_KEY", "model_env":"TOGETHER_MODEL", "endpoint":"https://api.together.xyz/v1/chat/completions", "default_model":"meta-llama/Llama-3.3-70B-Instruct-Turbo", "label":"Together AI"},
-        "openrouter": {"key_env":"OPENROUTER_API_KEY", "model_env":"OPENROUTER_MODEL", "endpoint":"https://openrouter.ai/api/v1/chat/completions", "default_model":"openai/gpt-4o-mini", "label":"OpenRouter"},
-    }
-    config = builtins.get(provider) or custom_openai_compatible_providers().get(provider)
-    if not config:
-        raise RuntimeError(f"Provider '{provider}' chưa được cấu hình. Kiểm tra CUSTOM_AI_PROVIDERS_JSON và AI_PROVIDER_ORDER.")
-    key=os.environ.get(config["key_env"], "").strip()
-    if not key: raise RuntimeError(f"Chưa cấu hình {config['key_env']}.")
-    model=os.environ.get(config["model_env"], config["default_model"]).strip() or config["default_model"]
-    user_content = prompt
-    if image_data and image_data.startswith("data:image/") and "," in image_data:
-        user_content=[{"type":"text","text":prompt},{"type":"image_url","image_url":{"url":image_data}}]
-    payload={"model":model,"messages":[{"role":"system","content":system_instruction},{"role":"user","content":user_content}],"temperature":0.2,"max_tokens":max_output_tokens,"response_format":{"type":"json_object"}}
-    endpoint=config["endpoint"]
-    headers={
-        "Authorization":"Bearer "+key,
-        "Content-Type":"application/json",
-        "Accept":"application/json",
-        # Use an explicit, transparent application UA rather than urllib's generic default.
-        "User-Agent":os.environ.get("WRITEWISER_USER_AGENT", "WriteWiser/31 (IELTS Writing learning app; contact https://www.facebook.com/people/WriteWiser/61595026757886/)").strip(),
-    }
-    is_openrouter = "openrouter.ai" in (urlparse(endpoint).hostname or "").lower()
-    if is_openrouter:
-        headers["HTTP-Referer"]=os.environ.get("OPENROUTER_SITE_URL", os.environ.get("PUBLIC_BASE_URL", "https://writewiser.onrender.com")).strip()
-        headers["X-Title"]=os.environ.get("OPENROUTER_APP_NAME","WriteWiser")
-        # The healing plugin can repair malformed JSON responses. Require a route that honors
-        # response_format; otherwise a retry below can use a less strict compatibility request.
-        if os.environ.get("OPENROUTER_RESPONSE_HEALING", "1").strip().lower() not in ("0", "false", "no", "off"):
-            payload["plugins"]=[{"id":"response-healing"}]
-        payload["provider"]={"require_parameters":True}
-
-    def send(request_payload):
-        req=urllib.request.Request(endpoint,data=json.dumps(request_payload,ensure_ascii=False).encode("utf-8"),headers=headers,method="POST")
-        with urllib.request.urlopen(req,timeout=120) as resp:
-            raw_body = resp.read().decode("utf-8", errors="replace")
-        try:
-            return json.loads(raw_body)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"{provider} trả envelope API không phải JSON hợp lệ (HTTP 200).") from exc
-
-    try:
-        result=send(payload)
-    except urllib.error.HTTPError as e:
-        detail=e.read().decode("utf-8",errors="ignore")[:350]
-        # OpenRouter can have an upstream endpoint without support for one of the optional
-        # JSON parameters/plugins. Try one compatibility fallback only for parameter errors.
-        if is_openrouter and e.code in (400, 404, 422) and re.search(r"response_format|require_parameters|response.healing|plugin|unsupported parameter|no endpoints", detail, re.I):
-            fallback=dict(payload)
-            fallback.pop("response_format", None)
-            fallback.pop("plugins", None)
-            fallback.pop("provider", None)
-            try:
-                result=send(fallback)
-                payload=fallback  # reuse the working compatibility shape for any JSON repair retry
-            except urllib.error.HTTPError as retry_error:
-                retry_detail=retry_error.read().decode("utf-8",errors="ignore")[:280]
-                raise RuntimeError(f"{provider} HTTP {retry_error.code} sau khi thử cấu hình tương thích: {retry_detail}") from retry_error
-        else:
-            raise RuntimeError(f"{provider} HTTP {e.code}: {detail}") from e
-    except (urllib.error.URLError,TimeoutError) as e:
-        raise RuntimeError(f"{provider}: lỗi kết nối hoặc timeout.") from e
-
-    def extract_response(response):
-        choices=response.get("choices") or []
-        if not choices:
-            raise ValueError("no_choices")
-        choice=choices[0] or {}
-        message=choice.get("message") or {}
-        content=message.get("content")
-        if isinstance(content,list):
-            content="".join(str(x.get("text", "")) for x in content if isinstance(x,dict) and x.get("type", "text") == "text")
-        if not isinstance(content,str) or not content.strip():
-            if message.get("refusal"):
-                raise ValueError("refusal")
-            raise ValueError("empty")
-        try:
-            parsed=parse_json_response_content(content)
-        except ValueError:
-            finish=choice.get("finish_reason")
-            if finish in ("length", "max_tokens"):
-                raise ValueError("truncated")
-            raise ValueError("invalid")
-        if not isinstance(parsed, (dict, list)):
-            raise ValueError("wrong_root")
-        return parsed, choice.get("finish_reason"), content
-
-    try:
-        parsed, finish_reason, content = extract_response(result)
-        return parsed, f"{provider}:{result.get('model', model)}"
-    except ValueError as first_error:
-        # OpenRouter outputs from some routes occasionally add prose or malformed/truncated JSON.
-        # Repair once on the same provider only when parsing failed; normal calls use one request.
-        if is_openrouter and os.environ.get("OPENROUTER_JSON_RETRY", "1").strip().lower() not in ("0", "false", "no", "off"):
-            repair_system = system_instruction + "\n\nCRITICAL OUTPUT RULE: Your last response was rejected because it was not a complete valid JSON object/array. Return only one complete JSON value. No Markdown fences, no preamble, no explanation outside JSON. Preserve the required schema and all required fields."
-            preview = str((result.get("choices") or [{}])[0].get("message", {}).get("content", ""))[:4500]
-            repair_prompt = prompt + "\n\nYour previous response was not parseable JSON. Re-generate the answer from the original instructions as one complete valid JSON object, without Markdown or surrounding prose. The previous invalid output is provided only to diagnose formatting; do not copy its malformed syntax:\n" + preview
-            retry_payload=dict(payload)
-            retry_payload["messages"]=[{"role":"system","content":repair_system},{"role":"user","content":repair_prompt}]
-            retry_payload["max_tokens"]=min(max(max_output_tokens+1600, 3000), 10000)
-            try:
-                retry_result=send(retry_payload)
-                parsed, _, _=extract_response(retry_result)
-                return parsed, f"{provider}:{retry_result.get('model', model)} (JSON retry)"
-            except urllib.error.HTTPError as retry_error:
-                retry_detail=retry_error.read().decode("utf-8",errors="ignore")[:240]
-                raise RuntimeError(f"{provider} không sửa được JSON ở lượt thử lại (HTTP {retry_error.code}): {retry_detail}") from retry_error
-            except (urllib.error.URLError,TimeoutError) as retry_error:
-                raise RuntimeError(f"{provider} không kết nối được ở lượt sửa JSON.") from retry_error
-            except ValueError as retry_error:
-                first_error=retry_error
-        reasons={"empty":"nội dung trống", "no_choices":"không có choices", "refusal":"model từ chối yêu cầu", "truncated":"JSON bị cắt vì chạm giới hạn token", "wrong_root":"JSON có kiểu gốc không phải object/array", "invalid":"nội dung không phải JSON hoàn chỉnh"}
-        raise RuntimeError(f"{provider} trả phản hồi không dùng được: {reasons.get(str(first_error), 'không phân tích được JSON')}. Đã bật thử sửa JSON cho OpenRouter nếu có thể.") from first_error
-
-
-def ai_generate(system_instruction, prompt, max_output_tokens=6500, image_data=None):
-    order=[x.strip().lower() for x in os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter").split(",") if x.strip()]
-    custom = custom_openai_compatible_providers()
-    available={
-        "gemini":bool(os.environ.get("GEMINI_API_KEY")),
-        "groq":bool(os.environ.get("GROQ_API_KEY")),
-        "together":bool(os.environ.get("TOGETHER_API_KEY")),
-        "openrouter":bool(os.environ.get("OPENROUTER_API_KEY")),
-    }
-    for name, cfg in custom.items():
-        available[name]=bool(os.environ.get(cfg["key_env"], "").strip())
-    failures=[]
-    for provider in order:
-        if provider not in available or not available[provider]: continue
-        try:
-            if provider=="gemini": return gemini_generate(system_instruction,prompt,max_output_tokens,image_data)
-            return openai_compatible_generate(provider,system_instruction,prompt,max_output_tokens,image_data)
-        except RuntimeError as exc:
-            failures.append(f"{provider}: {str(exc)[:240]}")
-            # Any provider error triggers the next configured provider: 503, 429, invalid JSON, etc.
-    if not failures:
-        custom_note = " Hãy kiểm tra CUSTOM_AI_PROVIDERS_JSON nếu muốn thêm endpoint tương thích OpenAI." 
-        raise RuntimeError("Chưa cấu hình AI provider đang hoạt động. Hãy đặt ít nhất một API key (GEMINI_API_KEY, GROQ_API_KEY, TOGETHER_API_KEY, OPENROUTER_API_KEY hoặc API key được khai báo trong CUSTOM_AI_PROVIDERS_JSON)." + custom_note)
-    raise RuntimeError("Tất cả AI provider khả dụng đều thất bại; đã thử dự phòng theo thứ tự cấu hình. " + " | ".join(failures))
-
-def _number_band(value):
-    """Return a finite IELTS band in [0, 9], accepting values like 'Band 7.5'."""
-    if isinstance(value, bool) or value is None:
-        return None
-    try:
-        if isinstance(value, (int, float)):
-            number = float(value)
-        else:
-            match = re.search(r"(?<!\d)([0-9](?:\.5)?)(?!\d)", str(value))
-            if not match: return None
-            number = float(match.group(1))
-        return number if 0 <= number <= 9 else None
-    except (TypeError, ValueError):
-        return None
-
-def _criterion_key(name):
-    normalized = re.sub(r"[^a-z]", "", str(name or "").lower())
-    if normalized in ("ta", "taskachievement", "taskachievementacademic", "achievement"): return "TA/TR"
-    if normalized in ("tr", "taskresponse", "responsetotask"): return "TA/TR"
-    if normalized in ("cc", "coherenceandcohesion", "coherencecohesion"): return "CC"
-    if normalized in ("lr", "lexicalresource", "lexical"): return "LR"
-    if normalized in ("gra", "grammaticalrangeandaccuracy", "grammar", "grammaticalrangeaccuracy"): return "GRA"
-    return None
-
-def _summarize_writing_history(history):
-    """Only scored free-writing submissions contribute to IELTS band analytics."""
-    by_task = {"Task 1": [], "Task 2": []}
-    for record in history if isinstance(history, list) else []:
-        if not isinstance(record, dict) or record.get("mode") != "independent":
-            continue
-        task = record.get("task")
-        feedback = record.get("feedback")
-        if task not in by_task or not isinstance(feedback, dict):
-            continue
-        overall = _number_band(feedback.get("overall_band"))
-        if overall is None:
-            continue
-        criteria = {"TA/TR": None, "CC": None, "LR": None, "GRA": None}
-        raw_criteria = feedback.get("criteria", [])
-        if isinstance(raw_criteria, list):
-            for item in raw_criteria:
-                if not isinstance(item, dict): continue
-                key = _criterion_key(item.get("name") or item.get("criterion") or item.get("key"))
-                value = _number_band(item.get("band", item.get("score")))
-                if key and value is not None:
-                    criteria[key] = value
-        by_task[task].append({"overall": overall, "criteria": criteria, "date": record.get("date"), "id": record.get("id")})
-    def avg(vals):
-        vals = [v for v in vals if v is not None]
-        return round(sum(vals) / len(vals), 2) if vals else None
-    summary = {}
-    for task, records in by_task.items():
-        summary[task] = {
-            "count": len(records),
-            "averageOverall": avg([r["overall"] for r in records]),
-            "criteria": {key: avg([r["criteria"].get(key) for r in records]) for key in ("TA/TR", "CC", "LR", "GRA")},
-            "distribution": {str(band / 2): sum(1 for r in records if round(r["overall"] * 2) == band) for band in range(0, 19)}
-        }
-    return summary
+from ww_db import (
+    SQLiteSession, PostgresSession, db, is_integrity_error,
+    maybe_prune_expired_sessions, _history_created_epoch,
+    upsert_user_history, read_user_history, init_db,
+    password_hash, token_hash, read_setting, write_setting,
+    store_password, verify_stored_password, ensure_initial_security_accounts,
+    invalidate_leaderboard_cache, compute_cached_leaderboard,
+)
+from ww_importer import (
+    DolLinkParser, fetch_dol_catalog, TextOnlyParser,
+    extract_docx_text, infer_import_sections, parse_import_file,
+)
+from ww_scoring import (
+    load_scoring_resources, build_scoring_rubric, _as_json_list,
+    normalize_writing_feedback, _number_band, _criterion_key,
+    _summarize_writing_history,
+)
+from ww_ai import (
+    ALLOWED_IMAGE_HOSTS, fetch_remote_or_local_image, fetch_task1_image_as_data_url,
+    gemini_generate, custom_openai_compatible_providers,
+    parse_json_response_content, openai_compatible_generate, ai_generate,
+)
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -1171,6 +161,7 @@ class Handler(SimpleHTTPRequestHandler):
         return value
 
     def session_user(self):
+        maybe_prune_expired_sessions()
         cookie_header = self.headers.get("Cookie", "")
         jar = cookies.SimpleCookie()
         try:
@@ -1342,10 +333,19 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def list_directory(self, path):
+        # Never expose directory listings (e.g. /assets/ or /resources/)
+        self.send_error(404, "Directory listing is disabled")
+        return None
+
     def do_GET(self):
-        path = urlparse(self.path).path
+        raw_path = urlparse(self.path).path
+        path = posixpath.normpath(unquote(raw_path))
+        if not path.startswith("/"):
+            path = "/" + path
+        if raw_path == "/":
+            path = "/"
         # Serve the root favicon explicitly, without requiring a study-gate session.
-        # This stable root URL is used by Google Search and browser favicon crawlers.
         if path == "/favicon.ico":
             try:
                 favicon_bytes = (BASE / "favicon.ico").read_bytes()
@@ -1359,9 +359,36 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(favicon_bytes)
             return
+        # Transparently support both og-image-v30.png and og-image-v30.jpg so social crawlers never 404
+        if path in ("/assets/og-image-v30.png", "/assets/og-image-v30.jpg"):
+            for candidate, mime in (("og-image-v30.png", "image/png"), ("og-image-v30.jpg", "image/jpeg")):
+                f_path = BASE / "assets" / candidate
+                if f_path.is_file():
+                    raw = f_path.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", mime)
+                    self.send_header("Content-Length", str(len(raw)))
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    self.wfile.write(raw)
+                    return
         # Do not let the static-file fallback expose backend/database/config files.
-        blocked_names = {"draftwise.sqlite3", "server.py", "providers.env.example", "render.yaml", "README.md", "requirements.txt", "migrate_sqlite_to_postgres.py", ".gitignore", ".env"}
-        if path.startswith("/resources/") or path.startswith("/.git/") or path.rsplit("/", 1)[-1] in blocked_names or path.startswith("/draftwise.sqlite3"):
+        filename = path.rsplit("/", 1)[-1]
+        blocked_names = {
+            "draftwise.sqlite3", "server.py", "ww_db.py", "ww_ai.py", "ww_importer.py", "ww_scoring.py",
+            "providers.env.example", "render.yaml", "README.md", "requirements.txt",
+            "migrate_sqlite_to_postgres.py", "run_writewiser.bat", ".gitignore", ".env",
+        }
+        blocked_exts = (".py", ".sqlite3", ".sqlite3-wal", ".sqlite3-shm", ".yaml", ".yml", ".bat", ".env")
+        if (
+            path.startswith("/resources")
+            or path.startswith("/.")
+            or filename.startswith(".")
+            or filename in blocked_names
+            or filename.lower().endswith(blocked_exts)
+            or path.startswith("/draftwise.sqlite3")
+        ):
             return self.send_error(404, "Not found")
         if path != "/" and path.endswith("/") and path[:-1] in SEO_PAGES:
             self.send_response(301)
@@ -1402,7 +429,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception: pass
                 return self.send_json(200, {"lessons": lessons})
             if path == "/api/health":
-                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "46-brainstorm-ta-tr-depth", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")})
+                return self.send_json(200, {"ok": True, "service": "writewiser", "version": "47-modular-perf-cors-flashcard", "database": "postgres" if DATABASE_URL else "sqlite-local", "aiConfigured": any(os.environ.get(k) for k in ("GEMINI_API_KEY","GROQ_API_KEY","TOGETHER_API_KEY","OPENROUTER_API_KEY")) or any(os.environ.get(c.get("key_env", "")) for c in custom_openai_compatible_providers().values()), "providers": [p for p,k in (("Gemini","GEMINI_API_KEY"),("Groq","GROQ_API_KEY"),("Together AI","TOGETHER_API_KEY"),("OpenRouter","OPENROUTER_API_KEY")) if os.environ.get(k)] + [cfg["label"] for name,cfg in custom_openai_compatible_providers().items() if os.environ.get(cfg["key_env"])], "providerOrder": os.environ.get("AI_PROVIDER_ORDER","gemini,groq,together,openrouter"), "model": os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")})
             if path == "/api/scoring-status":
                 prompt_path = BASE / "resources" / "ielts_writing_master_prompt.txt"
                 try:
@@ -1503,50 +530,31 @@ class Handler(SimpleHTTPRequestHandler):
                 except json.JSONDecodeError:
                     state = None
                 return self.send_json(200, {"state": state, "updatedAt": row["updated_at"]})
+            if path == "/api/image-proxy":
+                from urllib.parse import parse_qs
+                query = parse_qs(urlparse(self.path).query)
+                img_url = (query.get("url") or [""])[0].strip()
+                try:
+                    raw, mime = fetch_remote_or_local_image(img_url, base_dir=BASE)
+                    if not raw or not mime:
+                        return self.send_json(400, {"error": "URL ảnh không hợp lệ hoặc không nằm trong danh sách cho phép."})
+                    self.send_response(200)
+                    self.send_header("Content-Type", mime)
+                    self.send_header("Content-Length", str(len(raw)))
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    self.wfile.write(raw)
+                    return
+                except Exception as exc:
+                    return self.send_json(502, {"error": "Không tải được ảnh từ máy chủ nguồn: " + str(exc)[:160]})
             if path == "/api/dashboard":
                 user = self.session_user()
                 if not user:
                     return self.send_json(401, {"error": "Đăng nhập để xem Dashboard và bảng xếp hạng."})
                 with db() as c:
-                    # Migrate legacy user_state history for all accounts before aggregating scores.
-                    legacy_rows = c.execute("SELECT user_id, state_json FROM user_state WHERE state_json IS NOT NULL").fetchall()
-                    for legacy_row in legacy_rows:
-                        try:
-                            old_state = json.loads(legacy_row["state_json"])
-                            if isinstance(old_state, dict) and "history" in old_state:
-                                upsert_user_history(c, legacy_row["user_id"], old_state.pop("history", []))
-                                c.execute("UPDATE user_state SET state_json=?, updated_at=? WHERE user_id=?",
-                                          (json.dumps(old_state, ensure_ascii=False), int(time.time()), legacy_row["user_id"]))
-                        except Exception:
-                            pass
                     own_history = read_user_history(c, user["id"])
-                    all_rows = c.execute(
-                        """SELECT users.id AS user_id, users.username, users.role, user_history.record_json
-                           FROM users LEFT JOIN user_history ON user_history.user_id=users.id
-                           WHERE users.role='user' ORDER BY users.username"""
-                    ).fetchall()
-                histories_by_user = {}
-                usernames_by_id = {}
-                for row in all_rows:
-                    uid = row["user_id"]
-                    usernames_by_id[uid] = row["username"]
-                    histories_by_user.setdefault(uid, [])
-                    if row["record_json"]:
-                        try:
-                            record = json.loads(row["record_json"])
-                            if isinstance(record, dict): histories_by_user[uid].append(record)
-                        except Exception:
-                            pass
-                leaderboard = {"Task 1": [], "Task 2": []}
-                for uid, user_history in histories_by_user.items():
-                    stats = _summarize_writing_history(user_history)
-                    for task in ("Task 1", "Task 2"):
-                        task_stats = stats[task]
-                        if task_stats["count"]:
-                            leaderboard[task].append({"username": usernames_by_id[uid], "averageOverall": task_stats["averageOverall"], "submissions": task_stats["count"]})
-                for task in ("Task 1", "Task 2"):
-                    leaderboard[task].sort(key=lambda item: (-(item["averageOverall"] or 0), -item["submissions"], item["username"].lower()))
-                    for rank, item in enumerate(leaderboard[task], 1): item["rank"] = rank
+                    leaderboard = compute_cached_leaderboard(c)
                 return self.send_json(200, {"myHistory": own_history if isinstance(own_history, list) else [], "leaderboard": leaderboard, "updatedAt": int(time.time()), "privacy": "Leaderboard exposes usernames, average overall band by task and number of scored submissions only; no essay text or feedback is shared."})
             return self.send_json(404, {"error": "Không tìm thấy API."})
         # The main document must load so its password overlay can be shown. Other
@@ -2367,11 +1375,14 @@ NGUYÊN TẮC: question_analysis.requirements phải bao quát từng phần m�
             word_count = len(re.findall(r"\b[\w’'-]+\b", essay_text, flags=re.UNICODE))
             rubric = build_scoring_rubric(task)
             task_note = "Task 1 Academic" if task == "Task 1" else "Task 2"
-            image_data=data.get("image_data") if isinstance(data.get("image_data"),str) else ""
+            image_data = data.get("image_data") if isinstance(data.get("image_data"), str) else ""
+            image_url = data.get("image_url") if isinstance(data.get("image_url"), str) else ""
+            if task == "Task 1" and not image_data.startswith("data:image/") and image_url:
+                image_data = fetch_task1_image_as_data_url(image_url, base_dir=BASE)
             image_note = "\n\nĐÃ ĐÍNH KÈM ẢNH ĐỀ TASK 1: hãy quan sát biểu đồ/bản đồ trực tiếp, xác định đúng đơn vị, hạng mục và số liệu trước khi đánh giá mọi câu mô tả. Nếu ảnh không hiển thị rõ, nói rõ giới hạn; tuyệt đối không bịa số liệu." if task == "Task 1" and image_data.startswith("data:image/") else ("\n\nKHÔNG CÓ ẢNH ĐỀ ĐƯỢC GỬI: không được khẳng định đã đối chiếu số liệu trực quan; chỉ đánh giá ngôn ngữ và nội dung dựa trên đề chữ." if task == "Task 1" else "")
             prompt = "Hãy chấm bài theo rubric và JSON schema trong system instruction.\nTASK: " + task_note + "\nĐỀ BÀI:\n" + question.strip() + "\n\nBÀI VIẾT NGUYÊN VĂN:\n" + essay_text.strip() + f"\n\nSố từ tự đếm phía máy chủ: {word_count}. Hãy tự kiểm tra lại nếu cần." + image_note
             try:
-                feedback, model = ai_generate(rubric, prompt, max_output_tokens=9000, image_data=data.get("image_data"))
+                feedback, model = ai_generate(rubric, prompt, max_output_tokens=9000, image_data=image_data)
                 feedback = normalize_writing_feedback(feedback, task, word_count)
                 criteria = feedback.get("criteria") if isinstance(feedback, dict) else None
                 if not isinstance(feedback, dict) or not isinstance(criteria, list) or len(criteria) != 4:
@@ -2424,7 +1435,7 @@ NGUYÊN TẮC: question_analysis.requirements phải bao quát từng phần m�
             user = self.session_user()
             if not user: return self.send_json(401, {"error": "Bạn cần đăng nhập."})
             with db() as c:
-                c.execute("DELETE FROM user_history WHERE user_id=?", (user["id"],))
+                c.execute("DELETE FROM user_history WHERE user_id=?", (user["id"],)); invalidate_leaderboard_cache()
             return self.send_json(200, {"ok": True, "deleted": "all"})
         note_match = re.fullmatch(r"/api/notes/([^/]+)", path)
         if note_match:
@@ -2440,7 +1451,7 @@ NGUYÊN TẮC: question_analysis.requirements phải bao quát từng phần m�
             if not user: return self.send_json(401, {"error": "Bạn cần đăng nhập."})
             record_id = unquote(history_match.group(1))[:120]
             with db() as c:
-                c.execute("DELETE FROM user_history WHERE user_id=? AND record_id=?", (user["id"], record_id))
+                c.execute("DELETE FROM user_history WHERE user_id=? AND record_id=?", (user["id"], record_id)); invalidate_leaderboard_cache()
             return self.send_json(200, {"ok": True, "deleted": record_id})
         override_match = re.fullmatch(r"/api/library-overrides/([^/]+)", path)
         if override_match:
@@ -2561,11 +1572,11 @@ def main():
     os.chdir(BASE)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"WriteWiser v46 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
+    print(f"WriteWiser v47 running at http://{HOST}:{PORT} ({'PostgreSQL' if DATABASE_URL else 'SQLite local'})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping WriteWiser v46.")
+        print("\nStopping WriteWiser v47.")
     finally:
         server.server_close()
 

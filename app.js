@@ -714,11 +714,25 @@ function historyReviewSnapshotMarkup(record){
 }
 async function getCurrentLessonImageData(){
  const src=currentLesson?.visualData||currentLesson?.visual||"";if(!src)return "";
- try{
-  let url=src;if(!/^data:image\//i.test(src)){const response=await fetch(src,{credentials:"same-origin"});if(!response.ok)return "";const blob=await response.blob();url=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=reject;r.readAsDataURL(blob)});}
+ const toPngDataUrl=async(inputUrl)=>{
+  let url=inputUrl;
+  if(!/^data:image\//i.test(inputUrl)){
+   const response=await fetch(inputUrl,{credentials:"same-origin"});
+   if(!response.ok)throw new Error("fetch_failed");
+   const blob=await response.blob();
+   url=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=reject;r.readAsDataURL(blob)});
+  }
   if(url.startsWith("data:image/png;"))return url;
-  return await new Promise(resolve=>{const img=new Image();img.onload=()=>{try{const canvas=document.createElement("canvas");canvas.width=img.naturalWidth||1200;canvas.height=img.naturalHeight||800;canvas.getContext("2d").drawImage(img,0,0);resolve(canvas.toDataURL("image/png"));}catch{resolve("")}};img.onerror=()=>resolve("");img.src=url;});
- }catch{return ""}
+  return await new Promise(resolve=>{const img=new Image();img.crossOrigin="anonymous";img.onload=()=>{try{const canvas=document.createElement("canvas");canvas.width=img.naturalWidth||1200;canvas.height=img.naturalHeight||800;canvas.getContext("2d").drawImage(img,0,0);resolve(canvas.toDataURL("image/png"));}catch{resolve("")}};img.onerror=()=>resolve("");img.src=url;});
+ };
+ try{
+  const direct=await toPngDataUrl(src);
+  if(direct)return direct;
+ }catch{}
+ if(/^https:\/\//i.test(src)){
+  try{return await toPngDataUrl("/api/image-proxy?url="+encodeURIComponent(src));}catch{return "";}
+ }
+ return "";
 }
 async function submitIndependentWork(){
  const text=$("independentEssayInput").value.trim();
@@ -732,7 +746,8 @@ async function submitIndependentWork(){
   const health=await api("/api/health");
   if(!health.aiConfigured)throw new Error("Chưa cấu hình AI provider. Hãy đặt ít nhất một trong các key GEMINI_API_KEY, GROQ_API_KEY, TOGETHER_API_KEY hoặc OPENROUTER_API_KEY.");
   const imageData=await getCurrentLessonImageData();
-  const result=await api("/api/writing-feedback",{method:"POST",body:JSON.stringify({task:record.task,question:record.question,essay_text:text,image_data:imageData})});
+  const imageUrl=String(currentLesson?.visual||"");
+  const result=await api("/api/writing-feedback",{method:"POST",body:JSON.stringify({task:record.task,question:record.question,essay_text:text,image_data:imageData,image_url:imageUrl})});
   record.feedback=result.feedback;record.aiModel=result.model||"AI provider";record.imageReceived=!!result.image_received;record.words=result.word_count||words;const recordIndex=history.findIndex(item=>String(item.id)===String(record.id));if(recordIndex>=0)history[recordIndex]=record;updateLessonProgressFromRecord(record);
   (Array.isArray(record.feedback.priority_errors)?record.feedback.priority_errors:[]).slice(0,5).forEach(item=>mistakes.unshift({title:(item.original||"Lỗi Writing").slice(0,120),note:[item.explanation,item.correction?"Gợi ý sửa: "+item.correction:""].filter(Boolean).join("\n"),date:new Date().toLocaleDateString("vi-VN"),sourceRecordId:record.id}));mistakes=mistakes.slice(0,200);write(STORAGE.mistakes,mistakes);write(STORAGE.history,history);if(currentUser){try{await persistHistoryRecordsNow([record]);clearTimeout(syncTimer);await persistAccountStateNow()}catch(err){showToast("Phản hồi đã hiển thị nhưng chưa đồng bộ hoàn toàn: "+err.message)}}
   panel.innerHTML=`<p class="ai-model-note">Đã phân tích bằng ${escapeHtml(record.aiModel)}. ${record.task==="Task 1"?(record.imageReceived?"Ảnh đề đã được gửi kèm cho model.":"Không gửi được ảnh đề; hãy kiểm tra hình và số liệu thủ công."):""} Bài làm đã được lưu vào lịch sử.</p>${renderIndependentFeedback(record.feedback,record)}<div class="result-actions"><button class="button secondary" id="independentHistoryButton">Xem lịch sử</button><button class="button secondary" id="independentPromptButton">Tạo prompt dự phòng</button></div><div id="independentPromptArea" hidden><label class="input-label" for="independentPromptOutput">Prompt chấm bài</label><textarea id="independentPromptOutput" class="prompt-box" readonly></textarea><button class="button primary" id="independentCopyPromptButton">Sao chép prompt</button></div>`;
@@ -1461,11 +1476,48 @@ function dashboardWritingRecords(records){return (Array.isArray(records)?records
 function dashboardCriterionKey(name){const s=String(name||"").toLowerCase().replace(/[^a-z]/g,"");if(s.includes("taskachievement")||s==="ta"||s.includes("taskresponse")||s==="tr")return "TA/TR";if(s.includes("coherence")||s==="cc")return "CC";if(s.includes("lexicalresource")||s==="lr")return "LR";if(s.includes("grammaticalrange")||s==="gra"||s.includes("grammar"))return "GRA";return null}
 function dashboardStats(records){const out={"Task 1":{count:0,overall:[],criteria:{"TA/TR":[],CC:[],LR:[],GRA:[]}},"Task 2":{count:0,overall:[],criteria:{"TA/TR":[],CC:[],LR:[],GRA:[]}}};for(const r of dashboardWritingRecords(records)){const task=out[r.task],overall=dashboardBand(r.feedback.overall_band);if(overall===null)continue;task.count++;task.overall.push(overall);for(const c of (Array.isArray(r.feedback.criteria)?r.feedback.criteria:[])){const key=dashboardCriterionKey(c.name||c.criterion||c.key),band=dashboardBand(c.band??c.score);if(key&&band!==null)task.criteria[key].push(band)}}const avg=a=>a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length*100)/100:null;for(const task of Object.values(out)){task.average=avg(task.overall);for(const key of Object.keys(task.criteria))task.criteria[key]=avg(task.criteria[key])}return out}
 function dashboardSvgEmpty(message){return `<div class="dashboard-empty">${escapeHtml(message)}</div>`}
+function renderBandTrendChart(records){
+ const graded=dashboardWritingRecords(records).slice().sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
+ if(!graded.length)return dashboardSvgEmpty("Chưa có lượt Tự viết được AI chấm để vẽ xu hướng theo thời gian.");
+ const W=860,H=290,L=48,R=24,T=22,B=52,plotW=W-L-R,plotH=H-T-B;
+ const yFor=band=>T+plotH-(band/9)*plotH;
+ const xFor=(idx,total)=>total<=1?L+plotW/2:L+(idx/(total-1))*plotW;
+ let svg=`<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Xu hướng Overall Band theo thời gian">`;
+ for(let v=0;v<=9;v+=1.5){
+  const y=yFor(v);
+  svg+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" class="chart-gridline"/><text x="${L-9}" y="${y+4}" text-anchor="end" class="chart-tick">${v%1===0?v:v.toFixed(1)}</text>`;
+ }
+ graded.forEach((r,idx)=>{
+  if(graded.length<=12||idx===0||idx===graded.length-1||idx%Math.ceil(graded.length/8)===0){
+   const cx=xFor(idx,graded.length);
+   const shortDate=r.date?new Date(r.date).toLocaleDateString("vi-VN",{day:"2-digit",month:"2-digit"}):`#${idx+1}`;
+   svg+=`<text x="${cx}" y="${H-28}" text-anchor="middle" class="chart-tick">${escapeHtml(shortDate)}</text>`;
+  }
+ });
+ for(const [taskName,color] of [["Task 1","#80624f"],["Task 2","#5d7253"]]){
+  const pts=[];
+  graded.forEach((r,idx)=>{
+   if(r.task===taskName){
+    const band=dashboardBand(r.feedback?.overall_band);
+    if(band!==null)pts.push({x:xFor(idx,graded.length),y:yFor(band),band,title:r.lessonTitle||taskName,date:r.date?new Date(r.date).toLocaleDateString("vi-VN"):""});
+   }
+  });
+  if(pts.length>1){
+   svg+=`<polyline fill="none" stroke="${color}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" points="${pts.map(p=>`${p.x},${p.y}`).join(" ")}"/>`;
+  }
+  pts.forEach(p=>{
+   svg+=`<circle cx="${p.x}" cy="${p.y}" r="5" fill="${color}" stroke="#fffdfa" stroke-width="2"><title>${escapeHtml(taskName)} · ${escapeHtml(p.title)} (${escapeHtml(p.date)}): Band ${p.band.toFixed(1)}</title></circle>`;
+   svg+=`<text x="${p.x}" y="${p.y-9}" text-anchor="middle" class="chart-value">${p.band.toFixed(1)}</text>`;
+  });
+ }
+ svg+=`<rect x="${W-198}" y="${H-16}" width="10" height="10" rx="2" fill="#80624f"/><text x="${W-183}" y="${H-7}" class="chart-legend">Task 1</text><rect x="${W-112}" y="${H-16}" width="10" height="10" rx="2" fill="#5d7253"/><text x="${W-97}" y="${H-7}" class="chart-legend">Task 2</text></svg>`;
+ return svg;
+}
 function renderBandDistributionChart(records){const graded=dashboardWritingRecords(records);if(!graded.length)return dashboardSvgEmpty("Chưa có lượt Tự viết được AI chấm để vẽ biểu đồ.");const labels=Array.from({length:19},(_,i)=>(i*.5).toFixed(1).replace(/\.0$/,""));const counts={"Task 1":labels.map(()=>0),"Task 2":labels.map(()=>0)};graded.forEach(r=>{const band=dashboardBand(r.feedback.overall_band),idx=labels.findIndex(x=>band!==null&&Math.abs(Number(x)-band)<.01);if(idx>=0)counts[r.task][idx]++});const W=860,H=315,L=48,R=18,T=20,B=62,plotW=W-L-R,plotH=H-T-B,maxCount=Math.max(1,...counts["Task 1"],...counts["Task 2"]),step=Math.ceil(maxCount/4)||1,scaleMax=Math.max(step*4,maxCount),group=plotW/labels.length,bw=Math.min(17,group*.28);let svg=`<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Phân bố Overall Band theo Task">`;for(let i=0;i<=4;i++){const val=i*scaleMax/4,y=T+plotH-(val/scaleMax)*plotH;svg+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" class="chart-gridline"/><text x="${L-9}" y="${y+4}" text-anchor="end" class="chart-tick">${Math.round(val)}</text>`}labels.forEach((lab,i)=>{const cx=L+group*(i+.5);for(const [k,color,offset] of [["Task 1","#80624f",-bw*.62],["Task 2","#a9b49a",bw*.62]]){const val=counts[k][i],barH=val/scaleMax*plotH,x=cx+offset-bw/2,y=T+plotH-barH;svg+=`<rect x="${x}" y="${y}" width="${bw}" height="${barH}" rx="3" fill="${color}"/><title>${k} Band ${lab}: ${val} lượt</title>`}svg+=`<text x="${cx}" y="${H-38}" text-anchor="middle" class="chart-tick">${lab}</text>`});svg+=`<text x="${L}" y="${H-9}" class="chart-axis-label">Overall Band</text><rect x="${W-198}" y="${H-20}" width="10" height="10" rx="2" fill="#80624f"/><text x="${W-183}" y="${H-11}" class="chart-legend">Task 1</text><rect x="${W-112}" y="${H-20}" width="10" height="10" rx="2" fill="#a9b49a"/><text x="${W-97}" y="${H-11}" class="chart-legend">Task 2</text></svg>`;return svg}
 function renderBreakdownChart(stats){if(!stats["Task 1"].count&&!stats["Task 2"].count)return dashboardSvgEmpty("Chưa có dữ liệu breakdown score.");const W=760,H=310,L=43,R=18,T=22,B=50,plotH=H-T-B,plotW=W-L-R,labels=["TA / TR","CC","LR","GRA"],tasks=[{name:"Task 1",color:"#80624f"},{name:"Task 2",color:"#a9b49a"}],group=plotW/4,bw=36;let svg=`<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Điểm breakdown trung bình theo Task">`;for(let v=0;v<=9;v+=3){const y=T+plotH-v/9*plotH;svg+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" class="chart-gridline"/><text x="${L-9}" y="${y+4}" text-anchor="end" class="chart-tick">${v}</text>`}labels.forEach((lab,i)=>{const cx=L+group*(i+.5);tasks.forEach((task,ti)=>{const val=stats[task.name].criteria[lab==="TA / TR"?"TA/TR":lab],x=cx+(ti===0?-bw*.58:bw*.58)-bw/2;if(val===null){svg+=`<text x="${x+bw/2}" y="${T+plotH-5}" text-anchor="middle" class="chart-missing">—</text>`}else{const h=val/9*plotH,y=T+plotH-h;svg+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="4" fill="${task.color}"/><text x="${x+bw/2}" y="${y-7}" text-anchor="middle" class="chart-value">${val.toFixed(1)}</text><title>${task.name} ${lab}: ${val.toFixed(2)}</title>`}});svg+=`<text x="${cx}" y="${H-25}" text-anchor="middle" class="chart-tick">${lab}</text>`});svg+=`<rect x="${W-180}" y="${H-16}" width="10" height="10" rx="2" fill="#80624f"/><text x="${W-165}" y="${H-7}" class="chart-legend">Task 1</text><rect x="${W-94}" y="${H-16}" width="10" height="10" rx="2" fill="#a9b49a"/><text x="${W-79}" y="${H-7}" class="chart-legend">Task 2</text></svg>`;return svg}
 function renderRadarChart(stats){if(!stats["Task 1"].count&&!stats["Task 2"].count)return dashboardSvgEmpty("Chưa có điểm tiêu chí để tạo spider chart.");const W=500,H=385,cx=250,cy=186,r=125,axes=["TA / TR","CC","LR","GRA"],angles=[-Math.PI/2,0,Math.PI/2,Math.PI];const pt=(rad,i)=>[cx+Math.cos(angles[i])*rad,cy+Math.sin(angles[i])*rad];let svg=`<svg class="chart-svg radar-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Spider chart 4 tiêu chí Task 1 và Task 2">`;[3,6,9].forEach(v=>{const pts=angles.map((_,i)=>pt(r*v/9,i).join(",")).join(" ");svg+=`<polygon points="${pts}" fill="none" class="radar-grid"/><text x="${cx+5}" y="${cy-r*v/9+12}" class="chart-tick">${v}</text>`});angles.forEach((a,i)=>{const [x,y]=pt(r,i);svg+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" class="chart-gridline"/>`;let tx=x+Math.cos(a)*18,ty=y+Math.sin(a)*18+(i===0?-2:i===2?14:4),anchor=i===1?"start":i===3?"end":"middle";svg+=`<text x="${tx}" y="${ty}" text-anchor="${anchor}" class="radar-label">${axes[i]}</text>`});for(const [task,color] of [["Task 1","#80624f"],["Task 2","#a9b49a"]]){const vals=axes.map(l=>stats[task].criteria[l==="TA / TR"?"TA/TR":l]);if(vals.some(v=>v!==null)){const pts=vals.map((v,i)=>pt(r*(v===null?0:v)/9,i).join(",")).join(" ");svg+=`<polygon points="${pts}" fill="${color}" fill-opacity=".16" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>`;vals.forEach((v,i)=>{if(v!==null){const [x,y]=pt(r*v/9,i);svg+=`<circle cx="${x}" cy="${y}" r="4" fill="${color}"/><title>${task} ${axes[i]}: ${v.toFixed(2)}</title>`}})}}svg+=`<rect x="${cx-70}" y="${H-24}" width="10" height="10" rx="2" fill="#80624f"/><text x="${cx-55}" y="${H-15}" class="chart-legend">Task 1</text><rect x="${cx+18}" y="${H-24}" width="10" height="10" rx="2" fill="#a9b49a"/><text x="${cx+33}" y="${H-15}" class="chart-legend">Task 2</text></svg>`;return svg}
 function renderLeaderboardTable(items,task){if(!Array.isArray(items)||!items.length)return dashboardSvgEmpty(`Chưa có tài khoản nào có bài ${task} được chấm.`);return `<div class="leaderboard-table-wrap"><table class="leaderboard-table"><thead><tr><th>#</th><th>Tài khoản</th><th>Điểm TB</th><th>Lượt chấm</th></tr></thead><tbody>${items.map(item=>`<tr><td>${escapeHtml(item.rank)}</td><td>${escapeHtml(item.username)}</td><td><strong>${item.averageOverall==null?"—":Number(item.averageOverall).toFixed(2)}</strong></td><td>${escapeHtml(item.submissions)}</td></tr>`).join("")}</tbody></table></div>`}
-async function renderDashboard(){const notice=$("dashboardLoginNotice"),content=$("dashboardContent"),status=$("dashboardStatus");if(!currentUser){notice.hidden=false;content.hidden=true;return}notice.hidden=true;content.hidden=false;status.textContent="Đang tải dữ liệu dashboard…";try{const data=await api("/api/dashboard");const records=Array.isArray(data.myHistory)?data.myHistory:history;const graded=dashboardWritingRecords(records),stats=dashboardStats(graded);$("dashboardSummaryCards").innerHTML=["Task 1","Task 2"].map(task=>`<article class="dashboard-summary-card"><span>${task}</span><strong>${stats[task].average===null?"—":stats[task].average.toFixed(2)}</strong><small>Overall Band trung bình · ${stats[task].count} lượt chấm</small></article>`).join("");$("dashboardBandChart").innerHTML=renderBandDistributionChart(graded);$("dashboardBreakdownChart").innerHTML=renderBreakdownChart(stats);$("dashboardRadarChart").innerHTML=renderRadarChart(stats);$("leaderboardTask1").innerHTML=renderLeaderboardTable(data.leaderboard?.["Task 1"],"Task 1");$("leaderboardTask2").innerHTML=renderLeaderboardTable(data.leaderboard?.["Task 2"],"Task 2");$("leaderboardPrivacyNote").textContent=data.privacy||"Bảng xếp hạng chỉ dùng tên tài khoản và thống kê điểm tổng hợp.";status.textContent=`Đã tải ${graded.length} lượt Tự viết có điểm hợp lệ. Bài lịch sử chỉ được tính khi có kết quả AI lưu cùng bài.`}catch(err){status.textContent="Không tải được Dashboard: "+err.message;$("dashboardBandChart").innerHTML=dashboardSvgEmpty("Chưa thể tải dữ liệu.");$("dashboardBreakdownChart").innerHTML="";$("dashboardRadarChart").innerHTML=""}}
+async function renderDashboard(){const notice=$("dashboardLoginNotice"),content=$("dashboardContent"),status=$("dashboardStatus");if(!currentUser){notice.hidden=false;content.hidden=true;return}notice.hidden=true;content.hidden=false;status.textContent="Đang tải dữ liệu dashboard…";try{const data=await api("/api/dashboard");const records=Array.isArray(data.myHistory)?data.myHistory:history;const graded=dashboardWritingRecords(records),stats=dashboardStats(graded);$("dashboardSummaryCards").innerHTML=["Task 1","Task 2"].map(task=>`<article class="dashboard-summary-card"><span>${task}</span><strong>${stats[task].average===null?"—":stats[task].average.toFixed(2)}</strong><small>Overall Band trung bình · ${stats[task].count} lượt chấm</small></article>`).join("");if($("dashboardTrendChart"))$("dashboardTrendChart").innerHTML=renderBandTrendChart(graded);$("dashboardBandChart").innerHTML=renderBandDistributionChart(graded);$("dashboardBreakdownChart").innerHTML=renderBreakdownChart(stats);$("dashboardRadarChart").innerHTML=renderRadarChart(stats);$("leaderboardTask1").innerHTML=renderLeaderboardTable(data.leaderboard?.["Task 1"],"Task 1");$("leaderboardTask2").innerHTML=renderLeaderboardTable(data.leaderboard?.["Task 2"],"Task 2");$("leaderboardPrivacyNote").textContent=data.privacy||"Bảng xếp hạng chỉ dùng tên tài khoản và thống kê điểm tổng hợp.";status.textContent=`Đã tải ${graded.length} lượt Tự viết có điểm hợp lệ. Bài lịch sử chỉ được tính khi có kết quả AI lưu cùng bài.`}catch(err){status.textContent="Không tải được Dashboard: "+err.message;if($("dashboardTrendChart"))$("dashboardTrendChart").innerHTML=dashboardSvgEmpty("Chưa thể tải dữ liệu.");$("dashboardBandChart").innerHTML=dashboardSvgEmpty("Chưa thể tải dữ liệu.");$("dashboardBreakdownChart").innerHTML="";$("dashboardRadarChart").innerHTML=""}}
 async function deleteHistoryRecord(index){
  if(!Number.isInteger(index)||index<0||index>=history.length)return;
  const record=history[index];
@@ -1663,3 +1715,93 @@ updateVocabNotesCount();
 
 // Gate unlock is verified server-side; only then load account and shared lessons.
 bootAccessGate();
+
+
+// WriteWiser v47: Interactive Spaced-Repetition Flashcard Mode & Active Error Recall Quiz
+let vocabFlashcardIndex=0, vocabFlashcardFlipped=false;
+let mistakeQuizIndex=0, mistakeQuizRevealed=false;
+
+function renderVocabFlashcard(){
+ const stage=$("vocabFlashcardStage"),counter=$("vocabFlashcardCounter");
+ if(!stage)return;
+ const pool=Array.isArray(vocabNotes)?vocabNotes:[];
+ if(!pool.length){
+  if(counter)counter.textContent="0 / 0";
+  stage.innerHTML='<div class="empty-state"><strong>Chưa có ghi chú để ôn tập</strong>Hãy lưu ít nhất một ghi chú AI trước khi mở chế độ Flashcard.</div>';
+  return;
+ }
+ vocabFlashcardIndex=((vocabFlashcardIndex%pool.length)+pool.length)%pool.length;
+ const note=pool[vocabFlashcardIndex];
+ if(counter)counter.textContent=`Thẻ ${vocabFlashcardIndex+1} / ${pool.length}`;
+ stage.innerHTML=`<div class="flashcard-box ${vocabFlashcardFlipped?"is-flipped":""}">
+  <div class="flashcard-meta"><span class="vocab-note-category">${escapeHtml(note.category||"Cách diễn đạt")}</span><span>${escapeHtml(note.lessonTitle||"Sổ tay ghi chú AI")}</span></div>
+  <div class="flashcard-front">
+   <div class="eyebrow">MẶT TRƯỚC · NGHĨA & CÁCH DÙNG</div>
+   <h3>${noteEscape(note.meaning_vi||"Hãy nhớ lại cụm từ/cấu trúc tương ứng")}</h3>
+   ${note.note?`<p class="flashcard-hint"><strong>Gợi ý sắc thái:</strong> ${noteEscape(note.note)}</p>`:""}
+   ${note.example_vi?`<p class="flashcard-hint"><strong>Câu ví dụ (Việt):</strong> ${noteEscape(note.example_vi)}</p>`:""}
+  </div>
+  ${vocabFlashcardFlipped?`<div class="flashcard-back">
+   <div class="eyebrow">ĐÁP ÁN · BIỂU ĐẠT TIẾNG ANH</div>
+   <h2 class="flashcard-answer">${escapeHtml(note.expression||note.selected_text||"")}</h2>
+   <p><strong>Cách dùng:</strong> ${noteEscape(note.usage||"")}</p>
+   <p class="vocab-example-en"><strong>Ví dụ:</strong> ${noteEscape(note.example_en||"")}</p>
+  </div>`:""}
+  <div class="flashcard-controls">
+   <button type="button" class="button secondary" id="prevVocabFlashcard">← Trước</button>
+   <button type="button" class="button primary" id="flipVocabFlashcard">${vocabFlashcardFlipped?"Ẩn đáp án":"Lật thẻ / Xem đáp án"}</button>
+   <button type="button" class="button secondary" id="nextVocabFlashcard">Tiếp →</button>
+  </div>
+ </div>`;
+ $("prevVocabFlashcard")?.addEventListener("click",()=>{vocabFlashcardIndex--;vocabFlashcardFlipped=false;renderVocabFlashcard();});
+ $("nextVocabFlashcard")?.addEventListener("click",()=>{vocabFlashcardIndex++;vocabFlashcardFlipped=false;renderVocabFlashcard();});
+ $("flipVocabFlashcard")?.addEventListener("click",()=>{vocabFlashcardFlipped=!vocabFlashcardFlipped;renderVocabFlashcard();});
+}
+
+$("toggleVocabFlashcardButton")?.addEventListener("click",()=>{
+ const panel=$("vocabFlashcardPanel"),btn=$("toggleVocabFlashcardButton");
+ if(!panel||!btn)return;
+ const opening=panel.hidden;
+ panel.hidden=!opening;
+ btn.setAttribute("aria-expanded",String(opening));
+ btn.textContent=opening?"× Đóng Flashcard":"⚡ Ôn tập Flashcard";
+ if(opening){vocabFlashcardFlipped=false;renderVocabFlashcard();}
+});
+
+function renderMistakeQuiz(){
+ const stage=$("mistakeQuizCard"),counter=$("mistakeQuizCounter");
+ if(!stage)return;
+ if(!Array.isArray(mistakes)||!mistakes.length){
+  if(counter)counter.textContent="0 / 0";
+  stage.innerHTML='<div class="empty-state"><strong>Chưa có lỗi sai để luyện</strong>Sau khi AI chấm bài, các lỗi cần ưu tiên sẽ xuất hiện tại đây.</div>';
+  return;
+ }
+ mistakeQuizIndex=((mistakeQuizIndex%mistakes.length)+mistakes.length)%mistakes.length;
+ const item=mistakes[mistakeQuizIndex];
+ if(counter)counter.textContent=`Lỗi ${mistakeQuizIndex+1} / ${mistakes.length}`;
+ stage.innerHTML=`<div class="flashcard-box">
+  <div class="eyebrow">CÂU / CỤM TỪ CẦN SỬA (${escapeHtml(item.date||"Đã lưu")})</div>
+  <h3 class="ai-error-highlight" style="display:inline-block;padding:4px 8px;margin:6px 0">${escapeHtml(item.title||"")}</h3>
+  <label for="mistakeSelfFixInput" class="input-label" style="margin-top:10px">Tự viết lại câu/cụm đúng theo trí nhớ của bạn:</label>
+  <textarea id="mistakeSelfFixInput" rows="2" placeholder="Nhập cách sửa của bạn trước khi xem đáp án…"></textarea>
+  ${mistakeQuizRevealed?`<div class="flashcard-back"><div class="eyebrow">GIẢI THÍCH & GỢI Ý TỪ AI</div><p>${noteEscape(item.note||"")}</p></div>`:""}
+  <div class="flashcard-controls">
+   <button type="button" class="button secondary" id="prevMistakeQuiz">← Trước</button>
+   <button type="button" class="button primary" id="revealMistakeQuiz">${mistakeQuizRevealed?"Ẩn giải thích":"Kiểm tra đáp án"}</button>
+   <button type="button" class="button secondary" id="nextMistakeQuiz">Lỗi tiếp →</button>
+  </div>
+ </div>`;
+ $("prevMistakeQuiz")?.addEventListener("click",()=>{mistakeQuizIndex--;mistakeQuizRevealed=false;renderMistakeQuiz();});
+ $("nextMistakeQuiz")?.addEventListener("click",()=>{mistakeQuizIndex++;mistakeQuizRevealed=false;renderMistakeQuiz();});
+ $("revealMistakeQuiz")?.addEventListener("click",()=>{mistakeQuizRevealed=!mistakeQuizRevealed;renderMistakeQuiz();});
+}
+
+$("toggleMistakeQuizButton")?.addEventListener("click",()=>{
+ const panel=$("mistakeQuizPanel"),btn=$("toggleMistakeQuizButton");
+ if(!panel||!btn)return;
+ const opening=panel.hidden;
+ panel.hidden=!opening;
+ btn.setAttribute("aria-expanded",String(opening));
+ btn.textContent=opening?"× Đóng luyện tập":"⚡ Luyện sửa lỗi nhanh";
+ if(opening){mistakeQuizRevealed=false;renderMistakeQuiz();}
+});

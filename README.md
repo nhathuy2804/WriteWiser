@@ -1,3 +1,77 @@
+# WriteWiser v47 — Modular Architecture, Task 1 Image Proxy, Fast Leaderboard & Active Recall
+
+## Điểm mới ở bản v47
+- **Kiến trúc Backend Modular (`server.py`, `ww_db.py`, `ww_ai.py`, `ww_importer.py`, `ww_scoring.py`):** Tách biệt rõ ràng tầng cơ sở dữ liệu, cổng AI đa nhà cung cấp, bộ công cụ nhập đề (DOCX/HTML/CSV/JSON/DOL) và bộ chấm điểm IELTS 4 tiêu chí. Vẫn giữ nguyên lệnh khởi chạy `python server.py`.
+- **Khắc phục triệt để lỗi CORS mất ảnh biểu đồ Task 1:** Bổ sung `GET /api/image-proxy` (chỉ cho phép whitelist domain của DOL) và cơ chế tự động tải ảnh biểu đồ ở phía máy chủ (`fetch_task1_image_as_data_url`) khi trình duyệt không thể đọc canvas trực tiếp từ CDN ngoài.
+- **Tối ưu hóa Database & `/api/dashboard`:**
+  - Tái sử dụng kết nối PostgreSQL theo luồng (`Thread-Local Connection Pooling`) trong `PostgresSession`, loại bỏ việc phải bắt tay TCP+SSL 2–4 lần trên mỗi HTTP request.
+  - Bổ sung cột chỉ mục `task` và `overall_band` vào bảng `user_history` cùng bộ nhớ đệm Leaderboard trong RAM (TTL 60 giây), không còn quét toàn bảng `user_state` trên mỗi lượt mở Dashboard.
+  - Tự động dọn dẹp các phiên đăng nhập và phiên cổng mật khẩu đã hết hạn (`maybe_prune_expired_sessions`).
+- **Tăng cường bảo mật Static File Handler:** Vô hiệu hóa `list_directory` (không cho phép duyệt thư mục `/assets/`) và chuẩn hóa đường dẫn bằng `posixpath.normpath` trước khi kiểm tra danh sách chặn.
+- **Nâng cấp Học thuật & Phân tích (Pedagogy & Analytics):**
+  - **Biểu đồ Xu hướng Overall Band theo thời gian (Time-Series Trend Chart)** trong Dashboard.
+  - **Chế độ Ôn tập Flashcard (Spaced Repetition / Active Recall)** ngay trong trang *Sổ tay ghi chú AI*.
+  - **Chế độ Luyện sửa lỗi nhanh (Active Error Recall Quiz)** ngay trong trang *Sổ tay lỗi sai*.
+- **Cập nhật `migrate_sqlite_to_postgres.py`:** Hỗ trợ đồng bộ đầy đủ cả 12 bảng của kiến trúc v47.
+
+## Sơ đồ Kiến trúc Hệ thống (WriteWiser v47)
+
+```mermaid
+flowchart TB
+    Learner((Learner / Admin))
+
+    subgraph SecurityGate["1. Access & Security Layer"]
+        GateUI["Access Gate UI<br/>[index.html / app.js]"]
+        GateAuth["Gate & Session Auth + Session Pruner<br/>[server.py / ww_db.py]"]
+    end
+
+    subgraph Frontend["2. Frontend SPA Workspace [index.html + app.js]"]
+        LibUI["Lesson Library & Importer<br/>(DOL Excerpts, DOCX/CSV/JSON)"]
+        RevUI["Reverse Translation Mode<br/>(Sentence-by-Sentence + Hints)"]
+        IndUI["Independent Writing Mode<br/>(Task 1 & 2 + Practice/Exam Timer)"]
+        BrainUI["Mindmap Brainstorm<br/>(Idea + Explain 1 + Example/Explain2/Result)"]
+        NotesUI["AI Notebook & Error Log<br/>(+ Flashcard & Active Recall Quiz)"]
+        DashUI["History, SVG Dashboard & Leaderboard<br/>(+ Time-Series Band Trend Chart)"]
+        CalibUI["Rubric & Calibration Lab<br/>[calibration.html]"]
+    end
+
+    subgraph Backend["3. Modular Backend API & AI Orchestration"]
+        Router["ThreadingHTTPServer + SEO Router<br/>[server.py]"]
+        ImporterSvc["Import & NLP Service<br/>[ww_importer.py + /api/segment-paragraphs]"]
+        BrainSvc["Brainstorm Reviewer<br/>[/api/brainstorm-review]"]
+        TransSvc["Translation Reviewer<br/>[/api/feedback & /api/translation-sentence-feedback]"]
+        EssaySvc["IELTS 4-Criteria Assessor + Image Proxy<br/>[ww_scoring.py + /api/writing-feedback]"]
+        NoteSvc["AI Note Generator<br/>[/api/notes/generate]"]
+        AIGateway["Multi-Provider AI Gateway + JSON Healing<br/>[ww_ai.py: Gemini → Groq → Together → OpenRouter]"]
+    end
+
+    subgraph Storage["4. Persistence Layer [ww_db.py]"]
+        LocalStore[("Browser LocalStorage<br/>(Guest Cache & Offline Drafts)")]
+        DBAdapter["Thread-Local Pooled DB Adapter<br/>[SQLiteSession WAL / PostgresSession]"]
+        Postgres[("PostgreSQL (Supabase)<br/>12 Tables + Indexed Leaderboard")]
+        SQLite[("SQLite Local<br/>draftwise.sqlite3")]
+    end
+
+    Learner --> GateUI --> GateAuth
+    Learner --> LibUI & RevUI & IndUI & BrainUI & NotesUI & DashUI & CalibUI
+
+    LibUI -->|Import / Segment / Translate| ImporterSvc
+    RevUI -->|Check Sentence / Full Submit| TransSvc
+    IndUI -->|Submit Essay + Task 1 Chart URL/Data| EssaySvc
+    BrainUI -->|Submit Mindmap| BrainSvc
+    NotesUI -->|Generate Note| NoteSvc
+    DashUI & CalibUI -->|Sync State, History & Calibrations| Router
+
+    RevUI & IndUI & BrainUI & NotesUI <-->|Auto-save / Guest Fallback| LocalStore
+
+    ImporterSvc & BrainSvc & TransSvc & EssaySvc & NoteSvc --> AIGateway
+    GateAuth & Router & EssaySvc & NoteSvc & TransSvc --> DBAdapter
+    DBAdapter -->|DATABASE_URL set| Postgres
+    DBAdapter -->|Fallback locally| SQLite
+```
+
+---
+
 # WriteWiser v46 — Note Excerpts & Toggleable Manual Creation
 
 - Lịch sử AI review khôi phục `question`, `task`, `lessonTitle` và bài nộp từ snapshot của lượt làm, không dùng nhầm đề đang mở trong thư viện. Kết quả cũ hiển thị snapshot đề/bài đã chấm; vùng bài viết ở chế độ xem lại là chỉ đọc.
@@ -61,7 +135,7 @@ Bản này kế thừa ứng dụng v11 và bổ sung adapter PostgreSQL để t
 3. Đặt các environment variables được hỏi:
    - `DATABASE_URL`: connection string Supabase Transaction pooler.
    - `GEMINI_API_KEY`: API key của bạn.
-   - `GEMINI_MODEL`: `gemini-3.8-flash` (có thể đổi sang model được tài khoản/API của bạn hỗ trợ).
+   - `GEMINI_MODEL`: `gemini-2.5-flash` (có thể đổi sang model được tài khoản/API của bạn hỗ trợ).
    - `DRAFTWISE_HOST`: `0.0.0.0`.
    - `DRAFTWISE_SECURE_COOKIE`: `1`.
    - `WRITEWISER_GATE_PASSWORD`: mật khẩu truy cập chung, nên dài ít nhất 12 ký tự.
@@ -106,7 +180,7 @@ Nếu muốn giữ tài khoản/lịch sử ở file `draftwise.sqlite3` cũ:
 Không đặt `DATABASE_URL` thì server dùng SQLite local. Cài psycopg không bắt buộc nếu chỉ dùng local; nếu chạy `pip install -r requirements.txt` vẫn không sao.
 ```powershell
 $env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-$env:GEMINI_MODEL="gemini-3.8-flash"
+$env:GEMINI_MODEL="gemini-2.5-flash"
 python server.py
 ```
 Mở http://127.0.0.1:8000.

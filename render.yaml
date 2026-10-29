@@ -14,7 +14,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-3.8-flash
+        value: gemini-2.5-flash
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL
@@ -32,7 +32,7 @@ services:
       - key: OPENROUTER_JSON_RETRY
         value: "1"
       - key: WRITEWISER_USER_AGENT
-        value: "WriteWiser/31 (IELTS Writing learning app; contact https://www.facebook.com/people/WriteWiser/61595026757886/)"
+        value: "WriteWiser/47 (IELTS Writing learning app; contact https://www.facebook.com/people/WriteWiser/61595026757886/)"
       - key: CUSTOM_AI_PROVIDERS_JSON
         sync: false
       - key: AI_PROVIDER_ORDER
